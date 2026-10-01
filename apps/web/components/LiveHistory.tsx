@@ -15,7 +15,7 @@ import {
 } from '@/lib/format';
 import { useForegroundRefresh, useVisiblePolling } from '@/lib/poll';
 import { asRecord, type Channel, type Device, type Sample, normalizeSamples } from '@/lib/types';
-import { historyRows, liveChartSamples, mergeDaySamples, mergeSamples, coerceLiveTs } from '@/lib/samples';
+import { chartBucketSec, historyRows, liveChartSamples, mergeDaySamples, mergeSamples, coerceLiveTs } from '@/lib/samples';
 import { liveStreamUrl, openLiveStream } from '@/lib/ws';
 import { Button, ErrorText } from './ui';
 
@@ -111,6 +111,7 @@ export function LiveReadings({
     Array.from({ length: CHANNEL_COUNT }, (_, i) => device.channels[i]?.enabled !== false),
   );
   const [hist, setHist] = useState<Sample[]>([]);
+  const [bucketSec, setBucketSec] = useState(1);
   const [err, setErr] = useState<string | null>(null);
   const enabledMask = enabledIndexMask(device.channels);
 
@@ -123,15 +124,19 @@ export function LiveReadings({
     setErr(null);
     try {
       const from = startOfLocalDay();
+      const to = new Date();
+      const bucket = chartBucketSec(from.getTime(), to.getTime());
       const data = normalizeSamples(
         await apiGet(
           `/v1/samples${queryString({
             deviceId: device.id,
             from: from.toISOString(),
-            to: new Date().toISOString(),
+            to: to.toISOString(),
+            downsample: String(bucket),
           })}`,
         ),
       );
+      setBucketSec(bucket);
       setHist(mergeDaySamples(data, liveRef.current));
     } catch (e) {
       setErr(errorMessage(e));
@@ -144,12 +149,21 @@ export function LiveReadings({
   }, [loadDay]);
 
   const dayKey = useRef(startOfLocalDay().toDateString());
+  const bucketRef = useRef(bucketSec);
+  bucketRef.current = bucketSec;
   const rollDay = useCallback(() => {
     const next = startOfLocalDay().toDateString();
-    if (next === dayKey.current) return;
-    dayKey.current = next;
-    setHist([]);
-    void loadDay();
+    if (next !== dayKey.current) {
+      dayKey.current = next;
+      setHist([]);
+      void loadDay();
+      return;
+    }
+    /* The day keeps growing under a tab left open, so refetch once it has grown
+       past the bucket the points on screen were averaged into. */
+    if (chartBucketSec(startOfLocalDay().getTime(), Date.now()) !== bucketRef.current) {
+      void loadDay();
+    }
   }, [loadDay]);
 
   useVisiblePolling(rollDay, 30_000);
@@ -162,7 +176,7 @@ export function LiveReadings({
     setHist((prev) => mergeDaySamples(prev, liveSamples));
   }, [liveSamples]);
 
-  const rows = historyRows(liveChartSamples(hist), enabledIdx);
+  const rows = historyRows(liveChartSamples(hist, bucketSec), enabledIdx);
   const names = device.channels.map((c) => {
     const temp = formatTemp(c.lastTempC);
     return temp === '—' ? c.name : `${c.name} · ${temp}`;
@@ -201,12 +215,15 @@ export function HistoryReadings({ device }: { device: Device }) {
     setBusy(true);
     setErr(null);
     try {
-      const from = new Date(range.from).toISOString();
-      const to = new Date(range.to).toISOString();
+      const fromDate = new Date(range.from);
+      const toDate = new Date(range.to);
+      const from = fromDate.toISOString();
+      const to = toDate.toISOString();
       const q = queryString({
         deviceId: device.id,
         from,
         to,
+        downsample: String(chartBucketSec(fromDate.getTime(), toDate.getTime())),
         channel: enabledIdx.length === CHANNEL_COUNT ? undefined : enabledIdx.join(','),
       });
       const data = normalizeSamples(await apiGet(`/v1/samples${q}`));

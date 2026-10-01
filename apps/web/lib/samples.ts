@@ -4,15 +4,24 @@ import { CHANNEL_COUNT } from './config';
 import { startOfLocalDay } from './format';
 
 const LIVE_TS_SLACK_MS = 5 * 60_000;
-const AUTO_MINUTE_SPAN_MS = 6 * 3600_000;
-const AUTO_FIVE_MINUTE_SPAN_MS = 7 * 24 * 3600_000;
 
-/** Match API auto-downsample so live points use the same buckets as the day history. */
-export function autoDownsampleSec(fromMs: number, toMs: number): 60 | 300 | null {
+/* Must stay in step with the API ladder in samples.logic.ts, or live points land
+   in different buckets than the history they are merged into. */
+const BUCKET_LADDER_SEC = [
+  1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 10800, 21600, 43200, 86400,
+];
+const MAX_BUCKET_SEC = BUCKET_LADDER_SEC[BUCKET_LADDER_SEC.length - 1];
+const CHART_TARGET_POINTS = 800;
+
+/** Bucket width that keeps any range near the same on-screen point count. */
+export function chartBucketSec(fromMs: number, toMs: number, targetPoints = CHART_TARGET_POINTS): number {
   const span = toMs - fromMs;
-  if (span > AUTO_FIVE_MINUTE_SPAN_MS) return 300;
-  if (span > AUTO_MINUTE_SPAN_MS) return 60;
-  return null;
+  if (!(span > 0) || targetPoints <= 0) return 1;
+  const want = span / 1000 / targetPoints;
+  for (const step of BUCKET_LADDER_SEC) {
+    if (want <= step) return step;
+  }
+  return MAX_BUCKET_SEC;
 }
 
 export function downsampleSamples(samples: Sample[], bucketSec: number): Sample[] {
@@ -72,10 +81,11 @@ export function downsampleSamples(samples: Sample[], bucketSec: number): Sample[
     .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.channel - b.channel));
 }
 
-export function liveChartSamples(samples: Sample[], now = Date.now()): Sample[] {
-  const from = startOfLocalDay(new Date(now)).getTime();
-  const bucketSec = autoDownsampleSec(from, now);
-  return bucketSec ? downsampleSamples(samples, bucketSec) : samples;
+/* Folds the live points into the buckets the day query already used. The caller
+   passes the bucket it fetched with, so a tick past a ladder step cannot split
+   one minute across two widths. */
+export function liveChartSamples(samples: Sample[], bucketSec: number): Sample[] {
+  return bucketSec > 1 ? downsampleSamples(samples, bucketSec) : samples;
 }
 
 /** If the probe clock is unset, use arrival time so live points stay in the window. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  autoDownsampleSec,
+  chartBucketSec,
   coerceLiveTs,
   downsampleSamples,
   historyRows,
@@ -53,17 +53,26 @@ describe('historyRows', () => {
   });
 });
 
-describe('autoDownsampleSec', () => {
-  it('uses raw points for short ranges', () => {
-    expect(autoDownsampleSec(0, 6 * 3600_000)).toBeNull();
+describe('chartBucketSec', () => {
+  it('uses raw points for a short range', () => {
+    expect(chartBucketSec(0, 10 * 60_000)).toBe(1);
   });
 
-  it('uses 1-minute buckets after six hours', () => {
-    expect(autoDownsampleSec(0, 6 * 3600_000 + 1)).toBe(60);
+  it('thins four hours instead of drawing every second', () => {
+    expect(chartBucketSec(0, 4 * 3600_000)).toBe(30);
   });
 
-  it('uses 5-minute buckets after a week', () => {
-    expect(autoDownsampleSec(0, 7 * 24 * 3600_000 + 1)).toBe(300);
+  it('holds the point count steady across wildly different ranges', () => {
+    for (const span of [3600_000, 4 * 3600_000, 24 * 3600_000, 7 * 24 * 3600_000, 30 * 24 * 3600_000]) {
+      const points = span / 1000 / chartBucketSec(0, span);
+      expect(points).toBeLessThanOrEqual(800);
+      expect(points).toBeGreaterThan(100);
+    }
+  });
+
+  it('matches the bucket the API picks for the same span', () => {
+    expect(chartBucketSec(0, 7 * 24 * 3600_000)).toBe(900);
+    expect(chartBucketSec(0, 30 * 24 * 3600_000)).toBe(3600);
   });
 });
 
@@ -94,20 +103,20 @@ describe('liveChartSamples', () => {
         { ts: new Date(now - 10_000).toISOString(), channel: 0, tempC: 22, adcRaw: 1, rOhm: 1 },
         { ts: new Date(now).toISOString(), channel: 0, tempC: 24, adcRaw: 1, rOhm: 1 },
       ],
-      now,
+      60,
     );
     expect(out).toHaveLength(1);
     expect(out[0].ts).toBe(minute);
     expect(out[0].tempC).toBe(22);
   });
 
-  it('leaves raw points when the day so far is under six hours', () => {
+  it('leaves raw points when the day query asked for probe resolution', () => {
     const now = new Date(2026, 9, 1, 5, 0, 0).getTime();
     const samples = [
       { ts: new Date(now - 1000).toISOString(), channel: 0, tempC: 20, adcRaw: 1, rOhm: 1 },
       { ts: new Date(now).toISOString(), channel: 0, tempC: 21, adcRaw: 1, rOhm: 1 },
     ];
-    expect(liveChartSamples(samples, now)).toEqual(samples);
+    expect(liveChartSamples(samples, 1)).toEqual(samples);
   });
 });
 

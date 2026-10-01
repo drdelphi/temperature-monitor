@@ -3,8 +3,9 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DevicesService } from '../devices/devices.service';
 import { normalizeDeviceId, parseIsoDate, parseOptionalChannels } from '../common/util';
+import { autoBucketSec, clampBucketSec, MAX_BUCKET_SEC, MIN_BUCKET_SEC } from './samples.logic';
 
-export type Downsample = 'none' | 60 | 300;
+export type Downsample = 'none' | number;
 
 export type SampleQuery = {
   deviceId: string;
@@ -34,29 +35,20 @@ export class SamplesService {
   }
 
   private parseDownsample(raw: string | undefined, from?: Date, to?: Date): Downsample {
+    const spanMs = from && to ? to.getTime() - from.getTime() : 0;
+    /* A one-second bucket is what the probes already record, so group by nothing. */
+    const forSpan = (sec: number): Downsample => (sec <= MIN_BUCKET_SEC ? 'none' : sec);
     if (!raw || raw === 'auto') {
-      if (!from || !to) {
-        return 'none';
-      }
-      const span = to.getTime() - from.getTime();
-      if (span > 7 * 24 * 3600 * 1000) {
-        return 300;
-      }
-      if (span > 6 * 3600 * 1000) {
-        return 60;
-      }
-      return 'none';
+      return spanMs > 0 ? forSpan(autoBucketSec(spanMs)) : 'none';
     }
     if (raw === 'none') {
       return 'none';
     }
-    if (raw === '60') {
-      return 60;
+    const sec = Number(raw);
+    if (!Number.isInteger(sec) || sec < MIN_BUCKET_SEC || sec > MAX_BUCKET_SEC) {
+      throw new BadRequestException('That time range could not be loaded.');
     }
-    if (raw === '300') {
-      return 300;
-    }
-    throw new BadRequestException('That time range could not be loaded.');
+    return forSpan(clampBucketSec(sec, spanMs));
   }
 
   private where(deviceId: string, from?: Date, to?: Date, channels?: number[]): Prisma.SampleWhereInput {
@@ -122,7 +114,7 @@ export class SamplesService {
     from: Date | undefined,
     to: Date | undefined,
     channels: number[] | undefined,
-    bucketSec: 60 | 300,
+    bucketSec: number,
   ) {
     const fromClause = from ? Prisma.sql`AND ts >= ${from}` : Prisma.empty;
     const toClause = to ? Prisma.sql`AND ts <= ${to}` : Prisma.empty;
