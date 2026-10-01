@@ -673,10 +673,18 @@ table.data tr:last-child td {
 }
 
 table.data input[type='text'],
-table.data input[type='number'] {
+table.data input[type='number'],
+table.data select {
   width: 100%;
   min-width: 0;
   min-height: 38px;
+}
+
+.curve-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 168px;
 }
 
 .narrow {

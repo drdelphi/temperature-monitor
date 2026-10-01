@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class PatchChannelDto {
@@ -29,5 +29,7 @@ export class PatchChannelDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
+  @Min(1000)
+  @Max(8000)
   bValue?: number;
 }

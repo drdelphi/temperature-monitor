@@ -78,6 +78,9 @@ describe('errorMessage', () => {
     expect(errorMessage(new ApiError(400, JSON.stringify({ message: 'newPassword must be longer than or equal to 8 characters' })))).toBe(
       'Use at least 8 characters for the new password.',
     );
+    expect(errorMessage(new ApiError(400, JSON.stringify({ message: 'bValue must not be less than 1000' })))).toBe(
+      'Enter a B value between 1000 and 8000.',
+    );
   });
 });
 

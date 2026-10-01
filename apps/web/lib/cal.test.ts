@@ -14,6 +14,7 @@ describe('calibration', () => {
   it('uses the 10 kΩ NTC 103 factory curve as default', () => {
     expect(DEFAULT_CAL).toEqual({ offset: 0, gain: 1, bValue: 3950 });
     expect(isDefaultCal(DEFAULT_CAL)).toBe(true);
+    expect(isDefaultCal({ offset: 0, gain: 1, bValue: 3435 })).toBe(true);
     expect(isDefaultCal({ offset: 0.1, gain: 1, bValue: 3950 })).toBe(false);
   });
 

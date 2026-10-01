@@ -185,6 +185,7 @@ const KNOWN_ERRORS: Array<[RegExp, string]> = [
   [/already open/i, 'This USB connection is already in use. Disconnect first, then try again.'],
   [/failed to open serial port/i, 'Could not open the USB connection. Unplug the monitor, plug it back in, then try again.'],
   [/calibration points have the same/i, 'Use two different temperatures to finish this adjustment.'],
+  [/bvalue must not be/i, 'Enter a B value between 1000 and 8000.'],
   [/invalid snapshot|short snapshot|snapshot needs/i, 'The temperature reading could not be saved.'],
   [/must be a |must be an |should not be empty/i, 'Please check what you entered and try again.'],
 ];

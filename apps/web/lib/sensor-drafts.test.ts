@@ -30,6 +30,7 @@ describe('sensor drafts', () => {
     expect(isSensorsDirty({ 0: { ...saved[0], intervalSec: '15' } }, saved)).toBe(true);
     expect(isSensorsDirty({ 0: { ...saved[0], enabled: false } }, saved)).toBe(true);
     expect(isSensorsDirty({ 0: { ...saved[0], offset: 0.4 } }, saved)).toBe(true);
+    expect(isSensorsDirty({ 0: { ...saved[0], bValue: 3435 } }, saved)).toBe(true);
   });
 
   it('builds a patch with only changed fields', () => {
@@ -43,10 +44,11 @@ describe('sensor drafts', () => {
     expect(channelPatchBody({ ...saved, name: ' Probe A ' }, saved)).toBeNull();
   });
 
-  it('rejects blank names and intervals below 1 second', () => {
+  it('rejects blank names, intervals below 1 second, and out-of-range B', () => {
     const saved = channelToDraft(ch0);
     expect(validateDrafts({ 0: { ...saved, name: '  ' } })).toMatch(/name/);
     expect(validateDrafts({ 0: { ...saved, intervalSec: '0' } })).toMatch(/1 second/);
+    expect(validateDrafts({ 0: { ...saved, bValue: 900 } })).toMatch(/B value/);
     expect(validateDrafts({ 0: saved })).toBeNull();
   });
 

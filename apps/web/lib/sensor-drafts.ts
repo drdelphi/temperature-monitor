@@ -1,3 +1,4 @@
+import { isValidBValue } from './curves';
 import type { Channel } from './types';
 
 export type ChannelDraft = {
@@ -66,6 +67,7 @@ export function validateDraft(draft: ChannelDraft): string | null {
   if (!draft.name.trim()) return 'Each sensor needs a name.';
   const interval = Math.floor(Number(draft.intervalSec));
   if (!Number.isFinite(interval) || interval < 1) return 'Interval must be at least 1 second.';
+  if (!isValidBValue(draft.bValue)) return 'Enter a B value between 1000 and 8000.';
   return null;
 }
 

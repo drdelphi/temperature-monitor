@@ -10,6 +10,14 @@ import {
   twoPointCal,
   uncorrectedFromReading,
 } from '@/lib/cal';
+import {
+  B_VALUE_MAX,
+  B_VALUE_MIN,
+  CUSTOM_CURVE_ID,
+  NTC_CURVES,
+  bValueForCurveId,
+  curveIdForBValue,
+} from '@/lib/curves';
 import { channelHue } from '@/lib/colors';
 import { errorMessage, formatOhm, formatTemp } from '@/lib/format';
 import { linkSession } from '@/lib/link-session';
@@ -39,6 +47,7 @@ export function ChannelTable({
   const [saved, setSaved] = useState(() => draftsFromChannels(device.channels));
   const [points, setPoints] = useState<Record<number, CalPoint>>({});
   const [refs, setRefs] = useState<Record<number, string>>({});
+  const [customCurve, setCustomCurve] = useState<Record<number, boolean>>({});
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -50,6 +59,7 @@ export function ChannelTable({
     setSaved(next);
     setPoints({});
     setRefs({});
+    setCustomCurve({});
     setErr(null);
   }, [device.id]);
 
@@ -98,6 +108,7 @@ export function ChannelTable({
       if (updates.length) await linkSession.pushConfig(device.id);
       setDrafts(next);
       setSaved(next);
+      setCustomCurve({});
       await onChange();
     } catch (e) {
       setErr(errorMessage(e));
@@ -118,15 +129,21 @@ export function ChannelTable({
           disabled={!needsDefault}
           onClick={() =>
             setDrafts((d) =>
-              Object.fromEntries(Object.entries(d).map(([k, v]) => [Number(k), { ...v, ...DEFAULT_CAL }])),
+              Object.fromEntries(
+                Object.entries(d).map(([k, v]) => [
+                  Number(k),
+                  { ...v, offset: DEFAULT_CAL.offset, gain: DEFAULT_CAL.gain },
+                ]),
+              ),
             )
           }
         >
-          Default for all
+          Default calibration for all
         </button>
       </div>
       <p className="hint">
-        Sensors start with a standard probe setting. Match a trusted thermometer if a reading looks off.
+        Sensors start as a typical 10 kΩ Type II (B3950) probe. Choose the curve that matches the sensor, then
+        match a trusted thermometer if a reading looks off.
       </p>
       {err ? <div className="err">{err}</div> : null}
       <div className="table-wrap">
@@ -136,6 +153,7 @@ export function ChannelTable({
               <th />
               <th>On</th>
               <th>Name</th>
+              <th>Curve</th>
               <th>Every (seconds)</th>
               <th>Temperature</th>
               <th>Resistance</th>
@@ -155,8 +173,10 @@ export function ChannelTable({
                   draft={draft}
                   refText={refs[ch.index] ?? ''}
                   stored={points[ch.index]}
+                  customCurve={Boolean(customCurve[ch.index])}
                   onRef={(v) => setRefs((s) => ({ ...s, [ch.index]: v }))}
                   onDraft={(patch) => updateDraft(ch.index, patch)}
+                  onCustomCurve={(on) => setCustomCurve((s) => ({ ...s, [ch.index]: on }))}
                   onStorePoint={(p) => setPoints((s) => ({ ...s, [ch.index]: p }))}
                   onError={setErr}
                 />
@@ -179,8 +199,10 @@ function ChannelRow({
   draft,
   refText,
   stored,
+  customCurve,
   onRef,
   onDraft,
+  onCustomCurve,
   onStorePoint,
   onError,
 }: {
@@ -188,8 +210,10 @@ function ChannelRow({
   draft: ChannelDraft;
   refText: string;
   stored?: CalPoint;
+  customCurve: boolean;
   onRef: (v: string) => void;
   onDraft: (patch: Partial<ChannelDraft>) => void;
+  onCustomCurve: (on: boolean) => void;
   onStorePoint: (p: CalPoint) => void;
   onError: (msg: string | null) => void;
 }) {
@@ -223,6 +247,21 @@ function ChannelRow({
     }
   }
 
+  const active = draft.enabled;
+  const canCalibrate = active && ch.lastTempC != null;
+  const curveId = curveIdForBValue(draft.bValue, customCurve);
+
+  function onCurveChange(id: string) {
+    if (id === CUSTOM_CURVE_ID) {
+      onCustomCurve(true);
+      return;
+    }
+    const bValue = bValueForCurveId(id);
+    if (bValue == null) return;
+    onCustomCurve(false);
+    onDraft({ bValue });
+  }
+
   return (
     <tr>
       <td>
@@ -235,6 +274,30 @@ function ChannelRow({
       <td>
         <input type="text" value={draft.name} onChange={(e) => onDraft({ name: e.target.value })} />
       </td>
+      <td>
+        <div className="curve-cell">
+          <select value={curveId} onChange={(e) => onCurveChange(e.target.value)}>
+            {NTC_CURVES.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+            <option value={CUSTOM_CURVE_ID}>Custom B</option>
+          </select>
+          {curveId === CUSTOM_CURVE_ID ? (
+            <input
+              type="number"
+              min={B_VALUE_MIN}
+              max={B_VALUE_MAX}
+              step={1}
+              className="narrow"
+              value={Number.isFinite(draft.bValue) ? draft.bValue : ''}
+              onChange={(e) => onDraft({ bValue: e.target.value === '' ? Number.NaN : Number(e.target.value) })}
+              placeholder="B"
+            />
+          ) : null}
+        </div>
+      </td>
       <td className="narrow">
         <input
           type="number"
@@ -245,8 +308,8 @@ function ChannelRow({
           onChange={(e) => onDraft({ intervalSec: e.target.value })}
         />
       </td>
-      <td className="num">{formatTemp(ch.lastTempC)}</td>
-      <td className="num">{formatOhm(ch.lastROhm)}</td>
+      <td className="num">{active ? formatTemp(ch.lastTempC) : null}</td>
+      <td className="num">{active ? formatOhm(ch.lastROhm) : null}</td>
       <td className="num">
         {isDefaultCal(draft) ? (
           <span className="hint">Default</span>
@@ -269,24 +332,25 @@ function ChannelRow({
           value={refText}
           onChange={(e) => onRef(e.target.value)}
           placeholder="°C"
+          disabled={!active}
         />
       </td>
       <td>
         <div className="row">
-          <button type="button" className="btn" onClick={applyOffset} disabled={ch.lastTempC == null}>
+          <button type="button" className="btn" onClick={applyOffset} disabled={!canCalibrate}>
             Match
           </button>
-          <button type="button" className="btn btn-ghost" onClick={storePoint} disabled={ch.lastTempC == null}>
+          <button type="button" className="btn btn-ghost" onClick={storePoint} disabled={!canCalibrate}>
             Save point
           </button>
-          <button type="button" className="btn btn-ghost" onClick={applyTwoPoint} disabled={!stored || ch.lastTempC == null}>
+          <button type="button" className="btn btn-ghost" onClick={applyTwoPoint} disabled={!canCalibrate || !stored}>
             Finish
           </button>
           <button
             type="button"
             className="btn btn-ghost"
-            disabled={isDefaultCal(draft)}
-            onClick={() => onDraft({ ...DEFAULT_CAL })}
+            disabled={!active || isDefaultCal(draft)}
+            onClick={() => onDraft({ offset: DEFAULT_CAL.offset, gain: DEFAULT_CAL.gain })}
           >
             Default
           </button>

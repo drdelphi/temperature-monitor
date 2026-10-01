@@ -113,8 +113,10 @@ export function AlarmPanel({
             </tr>
           </thead>
           <tbody>
-            {device.channels.map((ch) =>
-              (['below', 'above'] as AlarmKind[]).map((kind) => {
+            {device.channels
+              .filter((ch) => ch.enabled)
+              .map((ch) =>
+                (['below', 'above'] as AlarmKind[]).map((kind) => {
                 const d = drafts[alarmKey(ch.index, kind)] ?? emptyAlarmDraft();
                 return (
                   <tr key={alarmKey(ch.index, kind)}>

@@ -5,8 +5,8 @@ export const DEFAULT_CAL = {
   bValue: 3950,
 } as const;
 
-export function isDefaultCal(c: { offset: number; gain: number; bValue: number }): boolean {
-  return c.offset === DEFAULT_CAL.offset && c.gain === DEFAULT_CAL.gain && c.bValue === DEFAULT_CAL.bValue;
+export function isDefaultCal(c: { offset: number; gain: number; bValue?: number }): boolean {
+  return c.offset === DEFAULT_CAL.offset && c.gain === DEFAULT_CAL.gain;
 }
 
 /** Uncorrected = reading with gain applied, offset removed. */
