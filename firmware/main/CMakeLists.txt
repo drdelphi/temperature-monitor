@@ -1,0 +1,36 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "pack.c"
+        "util.c"
+        "adc.c"
+        "rtc_ds3231.c"
+        "ring_log.c"
+        "nvs_cfg.c"
+        "wifi_sta.c"
+        "http_ingest.c"
+        "link_json.c"
+        "usb_cdc.c"
+        "ble_nus.c"
+        "led_rgb.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        nvs_flash
+        driver
+        esp_adc
+        esp_wifi
+        esp_event
+        esp_netif
+        esp_http_client
+        esp_timer
+        esp_system
+        json
+        mbedtls
+        esp-tls
+        bt
+        vfs
+        log
+        freertos
+        esp_hw_support
+        joltwallet__littlefs
+)

@@ -1,0 +1,117 @@
+menu "Temperature monitor"
+
+    config LED_RGB_GPIO
+        int "WS2812 data GPIO"
+        default 48
+        range 0 48
+        help
+            ESP32-S3-DevKitC-1 N16R8 v1.0 onboard RGB is GPIO 48.
+
+    config LED_RGB_BRIGHTNESS
+        int "LED brightness (0-255)"
+        default 40
+        range 1 255
+
+    config LED_RGB_BLINK_MS
+        int "Idle RGB on/off period (ms)"
+        default 500
+        range 50 2000
+
+    config TEMPMON_I2C_SDA_GPIO
+        int "DS3231M SDA GPIO"
+        default 21
+        range 0 48
+
+    config TEMPMON_I2C_SCL_GPIO
+        int "DS3231M SCL GPIO"
+        default 47
+        range 0 48
+
+    config TEMPMON_I2C_FREQ_HZ
+        int "I2C frequency"
+        default 100000
+        range 10000 400000
+
+    config TEMPMON_DS3231_ADDR
+        hex "DS3231M I2C address"
+        default 0x68
+
+    config TEMPMON_ADC_GPIO_0
+        int "NTC channel 0 GPIO"
+        default 1
+        range 1 10
+
+    config TEMPMON_ADC_GPIO_1
+        int "NTC channel 1 GPIO"
+        default 2
+        range 1 10
+
+    config TEMPMON_ADC_GPIO_2
+        int "NTC channel 2 GPIO"
+        default 4
+        range 1 10
+
+    config TEMPMON_ADC_GPIO_3
+        int "NTC channel 3 GPIO"
+        default 5
+        range 1 10
+
+    config TEMPMON_ADC_GPIO_4
+        int "NTC channel 4 GPIO"
+        default 6
+        range 1 10
+
+    config TEMPMON_ADC_GPIO_5
+        int "NTC channel 5 GPIO"
+        default 7
+        range 1 10
+
+    config TEMPMON_ADC_GPIO_6
+        int "NTC channel 6 GPIO"
+        default 8
+        range 1 10
+
+    config TEMPMON_ADC_GPIO_7
+        int "NTC channel 7 GPIO"
+        default 9
+        range 1 10
+
+    config TEMPMON_ADC_SAMPLES
+        int "ADC samples to average"
+        default 64
+        range 1 256
+
+    config TEMPMON_RING_MAX_RECORDS
+        int "LittleFS ring max 17-byte records"
+        default 655360
+        range 1024 800000
+        help
+            655360 * 17 ≈ 11.1 MB, leaving headroom on the 12.9 MB littlefs partition.
+            Unacked records are never overwritten; append fails when the ring is full.
+
+    config TEMPMON_DRAIN_DEFAULT_LIMIT
+        int "Default drain/ingest batch size"
+        default 32
+        range 1 128
+
+    config TEMPMON_INGEST_PERIOD_MS
+        int "HTTPS ingest poll period (ms)"
+        default 5000
+        range 1000 120000
+
+    config TEMPMON_CONFIG_PERIOD_MS
+        int "HTTPS config reconcile period (ms)"
+        default 60000
+        range 5000 600000
+
+    config TEMPMON_WIFI_RETRY_MS
+        int "Wi-Fi reconnect delay (ms)"
+        default 5000
+        range 1000 60000
+
+    config TEMPMON_WIFI_CONNECT_TIMEOUT_MS
+        int "Wi-Fi join timeout (ms)"
+        default 15000
+        range 3000 60000
+
+endmenu

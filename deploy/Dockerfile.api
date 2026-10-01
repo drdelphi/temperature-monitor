@@ -1,0 +1,19 @@
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json* ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+RUN npm install --workspace=apps/api --include-workspace-root
+
+FROM deps AS build
+COPY apps/api apps/api
+WORKDIR /app/apps/api
+RUN npx prisma generate && npm run build && test -f dist/src/main.js
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app /app
+WORKDIR /app/apps/api
+EXPOSE 4000
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]

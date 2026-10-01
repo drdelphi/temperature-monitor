@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  passwordHash     String
+  phoneE164        String?
+  telegramChatId   String?
+  telegramBotToken String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Device {
+  id              String    @id
+  name            String
+  tokenHash       String
+  lastSeen        DateTime?
+  apiBaseUrl      String?
+  pendingUnixTime BigInt?
+  configRev       Int       @default(1)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  channels        Channel[]
+  samples         Sample[]
+  alarms          Alarm[]
+  alarmEvents     AlarmEvent[]
+}
+
+model Channel {
+  id          String  @id @default(cuid())
+  deviceId    String
+  index       Int
+  name        String
+  enabled     Boolean @default(true)
+  intervalSec Int     @default(1)
+  offset      Float   @default(0)
+  gain        Float   @default(1)
+  bValue      Float   @default(3950)
+  device      Device  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  alarms      Alarm[]
+
+  @@unique([deviceId, index])
+}
+
+model Sample {
+  id       String   @id @default(cuid())
+  deviceId String
+  channel  Int
+  ts       DateTime
+  tempC    Float?
+  adcRaw   Int
+  rOhm     Float?
+  device   Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, ts, channel])
+  @@index([deviceId, ts])
+  @@index([deviceId, channel, ts])
+}
+
+enum AlarmKind {
+  below
+  above
+}
+
+enum AlarmAction {
+  fired
+  cleared
+}
+
+model Alarm {
+  id              String      @id @default(cuid())
+  deviceId        String
+  channel         Int
+  kind            AlarmKind
+  thresholdC      Float
+  enabled         Boolean     @default(true)
+  hysteresis      Float       @default(0.5)
+  cooldownSec     Int         @default(300)
+  notifySms       Boolean     @default(false)
+  notifyTelegram  Boolean     @default(false)
+  active          Boolean     @default(false)
+  lastFiredAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  device          Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  channelRel      Channel     @relation(fields: [deviceId, channel], references: [deviceId, index], onDelete: Cascade)
+  events          AlarmEvent[]
+
+  @@index([deviceId, channel])
+}
+
+model AlarmEvent {
+  id             String      @id @default(cuid())
+  alarmId        String
+  deviceId       String
+  channel        Int
+  kind           AlarmKind
+  thresholdC     Float
+  ts             DateTime
+  action         AlarmAction
+  notifySms      Boolean     @default(false)
+  notifyTelegram Boolean     @default(false)
+  alarm          Alarm       @relation(fields: [alarmId], references: [id], onDelete: Cascade)
+  device         Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, ts])
+  @@index([alarmId, ts])
+}
