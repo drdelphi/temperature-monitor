@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cookieValue, originAllowed, parseStreamUpgrade, publicLiveSample } from './sample-ws.logic';
+import { cookieValue, liveReplayRows, originAllowed, parseStreamUpgrade, publicLiveSample } from './sample-ws.logic';
 
 describe('sample-ws.logic', () => {
   it('reads a named cookie', () => {
@@ -43,5 +43,11 @@ describe('sample-ws.logic', () => {
       rOhm: 10000,
       adcRaw: 2048,
     });
+  });
+
+  it('replays latest samples when the live window is empty', () => {
+    const latest = [{ channel: 0, tempC: 21.5 }];
+    expect(liveReplayRows([], latest)).toEqual(latest);
+    expect(liveReplayRows([{ channel: 0, tempC: 18 }], latest)).toEqual([{ channel: 0, tempC: 18 }]);
   });
 });

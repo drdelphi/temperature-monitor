@@ -908,6 +908,12 @@ export class LinkSession {
       }
     }
 
+    try {
+      await this.send({ type: 'set_time', unixTime: Math.floor(Date.now() / 1000) });
+    } catch {
+      /* Clock can still be set from Settings. */
+    }
+
     if (!shouldDrain(hello.wifiState)) {
       this.patch({ status: 'Sending readings over Wi-Fi' });
       return;

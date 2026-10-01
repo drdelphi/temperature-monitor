@@ -6,7 +6,7 @@ import { apiBlob, apiGet, queryString } from '@/lib/api';
 import { channelHue } from '@/lib/colors';
 import { errorMessage, formatTemp, isoFilenameStamp, toLocalInput } from '@/lib/format';
 import { asRecord, type Device, type Sample, normalizeSamples } from '@/lib/types';
-import { historyRows, mergeSamples, sparkPoints } from '@/lib/samples';
+import { historyRows, mergeSamples, sparkPoints, coerceLiveTs } from '@/lib/samples';
 import { liveStreamUrl, openLiveStream } from '@/lib/ws';
 import { HistoryChart, Sparkline } from './charts';
 import { Button, ErrorText } from './ui';
@@ -202,7 +202,8 @@ export function useLiveSamples(deviceId: string): Sample[] {
 
     /* Live view is API websocket only. USB/BLE drain feeds the API; it does not paint the chart. */
     openLiveStream(liveStreamUrl(API_URL, deviceId), abort.signal, (data) => {
-      setSamples((prev) => mergeSamples(prev, normalizeSamples(data)));
+      const incoming = normalizeSamples(data).map((s) => ({ ...s, ts: coerceLiveTs(s.ts) }));
+      setSamples((prev) => mergeSamples(prev, incoming));
     });
 
     return () => {

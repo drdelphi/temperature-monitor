@@ -63,19 +63,24 @@ export function snapshotsToRows(
   deviceId: string,
   snapshots: IngestSnapshot[],
   channels: ChannelCal[],
+  now = new Date(),
 ): { rows: SampleRow[]; ackedTs: Date | null } {
   const byIndex = new Map(channels.map((c) => [c.index, c]));
   const raw: SampleRow[] = [];
   let ackedTs: Date | null = null;
 
   for (const snap of snapshots) {
-    const { ts, adc } = expandIngestSnapshot(snap);
-    if (Number.isNaN(ts.getTime())) {
+    const { ts: deviceTs, adc } = expandIngestSnapshot(snap);
+    if (Number.isNaN(deviceTs.getTime())) {
       throw new Error('invalid snapshot ts');
     }
-    if (!ackedTs || ts.getTime() > ackedTs.getTime()) {
-      ackedTs = ts;
+    if (!ackedTs || deviceTs.getTime() > ackedTs.getTime()) {
+      ackedTs = deviceTs;
     }
+    /* Keep the device timestamp on the ACK so flash erase stays correct.
+     * Store wall time when the RTC is still at factory 2000 so the live
+     * websocket (last two minutes) can actually see the rows. */
+    const ts = deviceTs.getUTCFullYear() < 2020 ? now : deviceTs;
     for (let i = 0; i < CHANNEL_COUNT; i++) {
       const cal = byIndex.get(i);
       if (!cal) {

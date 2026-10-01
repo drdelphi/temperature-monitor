@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   LIVE_WINDOW_MS,
   cookieValue,
+  liveReplayRows,
   originAllowed,
   parseStreamUpgrade,
   publicLiveSample,
@@ -145,7 +146,9 @@ export class SampleWsService implements OnModuleInit, OnModuleDestroy {
 
     try {
       const from = new Date(Date.now() - LIVE_WINDOW_MS).toISOString();
-      const rows = await this.samples.list({ deviceId, from });
+      const windowRows = await this.samples.list({ deviceId, from });
+      const latestRows = windowRows.length === 0 ? await this.samples.latest(deviceId) : [];
+      const rows = liveReplayRows(windowRows, latestRows);
       if (client.readyState === WebSocket.OPEN) {
         client.send(
           JSON.stringify({

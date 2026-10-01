@@ -55,6 +55,10 @@ export function parseStreamUpgrade(url: string | undefined): StreamUpgrade {
   return { match: true, deviceId: hex };
 }
 
+export function liveReplayRows<T>(windowRows: T[], latestRows: T[]): T[] {
+  return windowRows.length > 0 ? windowRows : latestRows;
+}
+
 export function publicLiveSample(row: {
   deviceId?: string;
   channel: number;

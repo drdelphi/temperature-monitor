@@ -87,6 +87,26 @@ export class SamplesService {
     return this.bucketed(deviceId, from, to, channels, downsample);
   }
 
+  async latest(deviceId: string) {
+    const id = normalizeDeviceId(deviceId);
+    await this.devices.require(id);
+    return this.prisma.$queryRaw<
+      Array<{
+        deviceId: string;
+        channel: number;
+        ts: Date;
+        tempC: number | null;
+        rOhm: number | null;
+        adcRaw: number | null;
+      }>
+    >(Prisma.sql`
+      SELECT DISTINCT ON (channel) "deviceId", channel, ts, "tempC", "rOhm", "adcRaw"
+      FROM "Sample"
+      WHERE "deviceId" = ${id}
+      ORDER BY channel, ts DESC
+    `);
+  }
+
   async count(q: SampleQuery) {
     const { deviceId, from, to, channels } = this.parseQuery(q);
     await this.devices.require(deviceId);

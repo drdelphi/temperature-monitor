@@ -295,23 +295,19 @@ static void ingest_task(void *arg)
             nvs_cfg_get(&cfg);
             s_busy = true;
 
-            bool did_cfg = false;
-            bool cfg_ok = false;
             if (last_cfg == 0 || (now - last_cfg) >= pdMS_TO_TICKS(CONFIG_TEMPMON_CONFIG_PERIOD_MS) ||
                 (!s_last_ok && ring_log_unacked() == 0)) {
-                cfg_ok = reconcile_config(&cfg);
-                did_cfg = true;
+                (void)reconcile_config(&cfg);
                 last_cfg = now;
                 nvs_cfg_get(&cfg);
             }
 
             if (ring_log_lock_flush(pdMS_TO_TICKS(50))) {
                 bool prev_ok = s_last_ok;
-                if (ring_log_unacked() == 0) {
-                    /* Reachable API with an empty ring still counts as ingesting so
-                     * a USB tab does not become a second flusher. */
-                    s_last_ok = did_cfg ? cfg_ok : s_last_ok;
-                } else {
+                /* Empty ring is not a successful ingest. Config GET can succeed
+                 * while POST /ingest never runs, which used to freeze wifiState
+                 * at ingesting and stop the USB drain with nothing in Postgres. */
+                if (ring_log_unacked() > 0) {
                     bool ok = true;
                     int batches = 0;
                     while (batches < 8 && ring_log_unacked() > 0) {

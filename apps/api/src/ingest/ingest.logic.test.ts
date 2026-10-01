@@ -91,4 +91,23 @@ describe('ingest uniqueness', () => {
       inserted: rows.length,
     });
   });
+
+  it('stores unset RTC snapshots at ingest time so the live websocket can see them', () => {
+    const now = new Date('2026-10-01T14:00:00.000Z');
+    const { rows, ackedTs } = snapshotsToRows(
+      'AABBCCDDEEFF',
+      [
+        {
+          ts: '2000-01-01T00:00:05.000Z',
+          adc: [2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048],
+        },
+      ],
+      cal,
+      now,
+    );
+    expect(ackedTs?.toISOString()).toBe('2000-01-01T00:00:05.000Z');
+    expect(rows).toHaveLength(8);
+    expect(rows[0].ts.toISOString()).toBe('2026-10-01T14:00:00.000Z');
+    expect(rows[0].tempC).toBeCloseTo(25, 0);
+  });
 });

@@ -39,11 +39,13 @@ static void sampler_task(void *arg)
 
         tmp_snapshot_t snap;
         memset(&snap, 0, sizeof(snap));
-        if (rtc_ds3231_read(&snap) != ESP_OK) {
+        bool rtc_ok = rtc_ds3231_read(&snap) == ESP_OK && snap.year >= 2020;
+        if (!rtc_ok) {
             time_t now = time(NULL);
-            if (now > 0) {
+            /* Host set_time / SNTP. ESP32 epoch 0 is not a real clock. */
+            if (now >= 1577836800) {
                 tmp_snapshot_from_unix(&snap, (int64_t)now);
-            } else {
+            } else if (snap.year < 2000 || snap.month < 1) {
                 snap.year = 2000;
                 snap.month = 1;
                 snap.day = 1;

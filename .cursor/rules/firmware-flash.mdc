@@ -1,0 +1,30 @@
+---
+description: Build and flash ESP32-S3 firmware after every on-device change
+globs: firmware/**
+alwaysApply: true
+---
+
+# Auto-flash firmware
+
+After changing anything that ships on the ESP32 (`firmware/main/`, `firmware/CMakeLists.txt`, `firmware/sdkconfig*`, partitions — not `firmware/host_test` alone), **build and flash before finishing**. Do not leave a firmware change unflashed.
+
+ESP-IDF is the Docker image `espressif/idf:v5.4.2` (not a host `IDF_PATH`).
+
+```bash
+# build
+docker run --rm \
+  -v "$PWD/firmware:/project" -w /project \
+  espressif/idf:v5.4.2 idf.py build
+
+# flash (no monitor — it blocks)
+PORT=$(ls /dev/ttyUSB* 2>/dev/null | head -1)
+PORT=${PORT:-$(ls /dev/ttyACM* 2>/dev/null | head -1)}
+docker run --rm --device="$PORT" \
+  -v "$PWD/firmware:/project" -w /project \
+  espressif/idf:v5.4.2 idf.py -p "$PORT" flash
+```
+
+- Prefer **`/dev/ttyUSB*`** (CP2102 UART). Fall back to **`/dev/ttyACM*`** (native USB Serial/JTAG).
+- If ACM is busy, Chrome Web Serial has it. Ask the user to **Disconnect** in the dashboard, then flash. Do not skip.
+- If no board is present, say so. The firmware task is not done.
+- Do not run `monitor` unless the user asks.

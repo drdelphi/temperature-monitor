@@ -101,6 +101,53 @@ static void reset_hdr(void)
     s_hdr.max_slots = CONFIG_TEMPMON_RING_MAX_RECORDS;
 }
 
+/* How many record slots ring.bin actually covers right now. */
+static uint32_t slots_in_file(void)
+{
+    if (!s_file || fseek(s_file, 0, SEEK_END) != 0) {
+        return 0;
+    }
+    long size = ftell(s_file);
+    if (size <= (long)sizeof(ring_hdr_t)) {
+        return 0;
+    }
+    return (uint32_t)((size - (long)sizeof(ring_hdr_t)) / TMP_RECORD_SIZE);
+}
+
+static uint32_t oldest_slot_locked(void)
+{
+    return (s_hdr.head + s_hdr.max_slots - s_hdr.count) % s_hdr.max_slots;
+}
+
+/* A record that does not unpack carries no timestamp, so no ingest ACK can ever
+ * retire it. Left in place it blocks the oldest end of the window forever: the
+ * drain returns an empty batch, the host never POSTs, and nothing is acked. */
+static uint32_t drop_undecodable_locked(void)
+{
+    uint32_t dropped = 0;
+    while (s_hdr.count > 0) {
+        uint32_t slot = oldest_slot_locked();
+        uint8_t rec[TMP_RECORD_SIZE];
+        if (fseek(s_file, slot_off(slot), SEEK_SET) != 0 ||
+            fread(rec, 1, TMP_RECORD_SIZE, s_file) != TMP_RECORD_SIZE) {
+            break; /* I/O trouble: keep the record and retry on the next drain */
+        }
+        tmp_snapshot_t snap;
+        if (tmp_unpack(&snap, rec)) {
+            break;
+        }
+        s_hdr.count--;
+        dropped++;
+    }
+    if (dropped > 0) {
+        (void)write_header();
+        nvs_save_cursor();
+        ESP_LOGW(TAG, "dropped %u undecodable records, count=%u",
+                 (unsigned)dropped, (unsigned)s_hdr.count);
+    }
+    return dropped;
+}
+
 esp_err_t ring_log_init(void)
 {
     s_lock = xSemaphoreCreateMutex();
@@ -136,6 +183,18 @@ esp_err_t ring_log_init(void)
             s_hdr.head = head;
             s_hdr.count = count;
         }
+        /* The NVS cursor outlives the file: a reformatted "storage" partition or
+         * the w+b fallback leaves a short ring.bin that cannot hold the records
+         * the cursor claims. Trust the file, or the window fills with zeros. */
+        uint32_t in_file = slots_in_file();
+        if (s_hdr.count > in_file) {
+            ESP_LOGW(TAG, "cursor claims %u records, file holds %u",
+                     (unsigned)s_hdr.count, (unsigned)in_file);
+            s_hdr.count = in_file;
+        }
+        if (s_hdr.head > in_file && in_file < s_hdr.max_slots) {
+            s_hdr.head = in_file;
+        }
         ESP_RETURN_ON_ERROR(write_header(), TAG, "hdr");
         nvs_save_cursor();
         ESP_LOGW(TAG, "ring header reset head=%u count=%u max=%u",
@@ -144,6 +203,10 @@ esp_err_t ring_log_init(void)
         ESP_LOGI(TAG, "ring head=%u count=%u max=%u",
                  (unsigned)s_hdr.head, (unsigned)s_hdr.count, (unsigned)s_hdr.max_slots);
     }
+    /* Heal a window that already starts with unusable records. */
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    (void)drop_undecodable_locked();
+    xSemaphoreGive(s_lock);
     return ESP_OK;
 }
 
@@ -184,18 +247,18 @@ uint32_t ring_log_unacked(void)
     return n;
 }
 
-static uint32_t oldest_slot_locked(void)
-{
-    return (s_hdr.head + s_hdr.max_slots - s_hdr.count) % s_hdr.max_slots;
-}
-
 esp_err_t ring_log_read_unacked(uint32_t offset, uint32_t max, tmp_snapshot_t *snaps,
                                 uint8_t packed[][TMP_RECORD_SIZE], uint32_t *out_count)
 {
     ESP_RETURN_ON_FALSE(out_count, ESP_ERR_INVALID_ARG, TAG, "out");
     *out_count = 0;
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    if (!s_file || offset >= s_hdr.count || max == 0) {
+    if (!s_file || max == 0) {
+        xSemaphoreGive(s_lock);
+        return ESP_OK;
+    }
+    (void)drop_undecodable_locked();
+    if (offset >= s_hdr.count) {
         xSemaphoreGive(s_lock);
         return ESP_OK;
     }
@@ -213,7 +276,9 @@ esp_err_t ring_log_read_unacked(uint32_t offset, uint32_t max, tmp_snapshot_t *s
         }
         tmp_snapshot_t snap;
         if (!tmp_unpack(&snap, rec)) {
-            continue;
+            /* End the batch here. Once the good records ahead of it are acked,
+             * this one becomes the oldest and is dropped. */
+            break;
         }
         if (snaps) {
             snaps[*out_count] = snap;

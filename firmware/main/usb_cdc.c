@@ -10,6 +10,13 @@
 #include <string.h>
 
 static const char *TAG = "usb_cdc";
+#define USB_TX_BUF_SIZE 2048
+/* The driver's TX ring buffer rejects any single write larger than itself, so a
+ * long line (a 32-snapshot drain reply is ~3.7 kB) was dropped whole with no
+ * error on the wire. Hand it over in pieces instead. */
+#define USB_TX_CHUNK 512
+#define USB_TX_STALL_LIMIT 10
+
 static volatile bool s_connected;
 static bool s_hello_sent;
 
@@ -33,14 +40,25 @@ esp_err_t usb_cdc_send(const char *data, size_t len)
         return ESP_OK;
     }
     size_t off = 0;
+    int stalls = 0;
     while (off < len) {
-        int n = usb_serial_jtag_write_bytes(data + off, len - off, pdMS_TO_TICKS(200));
+        size_t want = len - off;
+        if (want > USB_TX_CHUNK) {
+            want = USB_TX_CHUNK;
+        }
+        int n = usb_serial_jtag_write_bytes(data + off, want, pdMS_TO_TICKS(200));
         if (n < 0) {
             return ESP_FAIL;
         }
         if (n == 0) {
-            return ESP_ERR_TIMEOUT;
+            /* Host has not drained the buffer yet; give it a few more rounds. */
+            if (++stalls > USB_TX_STALL_LIMIT) {
+                ESP_LOGW(TAG, "tx stalled at %u/%u bytes", (unsigned)off, (unsigned)len);
+                return ESP_ERR_TIMEOUT;
+            }
+            continue;
         }
+        stalls = 0;
         off += (size_t)n;
     }
     return ESP_OK;
@@ -77,7 +95,7 @@ static void usb_task(void *arg)
 esp_err_t usb_cdc_init(void)
 {
     usb_serial_jtag_driver_config_t cfg = {
-        .tx_buffer_size = 2048,
+        .tx_buffer_size = USB_TX_BUF_SIZE,
         .rx_buffer_size = 1024,
     };
     ESP_RETURN_ON_ERROR(usb_serial_jtag_driver_install(&cfg), TAG, "install");
