@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
+import { useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 export function Button({
   variant = 'default',
@@ -32,10 +32,6 @@ export function Field({
       {children}
     </label>
   );
-}
-
-export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} />;
 }
 
 export function ErrorText({ children }: { children: ReactNode }) {

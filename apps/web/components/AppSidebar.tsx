@@ -7,6 +7,7 @@ import { apiGet } from '@/lib/api';
 import { connectionKindsFromLink, connectionLabel, errorMessage } from '@/lib/format';
 import { requestLeave } from '@/lib/leave-guard';
 import { type LinkState, linkSession, useLinkSession } from '@/lib/link-session';
+import { useVisiblePolling } from '@/lib/poll';
 import { type Device, normalizeDevices } from '@/lib/types';
 import { Button, ErrorText } from './ui';
 
@@ -29,11 +30,7 @@ export function AppSidebar({ onLogout }: { onLogout: () => void }) {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-    const t = window.setInterval(() => void load(), 5000);
-    return () => window.clearInterval(t);
-  }, [load]);
+  useVisiblePolling(load, 5000);
 
   useEffect(() => {
     setSerialOk(typeof navigator !== 'undefined' && Boolean(navigator.serial));
@@ -65,7 +62,7 @@ export function AppSidebar({ onLogout }: { onLogout: () => void }) {
     : null;
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" id="app-sidebar">
       <Link href="/" className="brand">
         {/* alt is empty: the adjacent wordmark already names the app. */}
         <img src="/logo-thermometer.svg" alt="" className="brand-logo" width={26} height={26} />

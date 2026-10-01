@@ -17,6 +17,7 @@ import { linkSession, useLinkSession } from '@/lib/link-session';
 import { latestByChannel } from '@/lib/samples';
 import { adcToC, adcToOhm } from '@/lib/cal';
 import { requestLeave, setLeaveGuard } from '@/lib/leave-guard';
+import { useVisiblePolling } from '@/lib/poll';
 import {
   type Alarm,
   type Device,
@@ -118,11 +119,7 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
     }
   }, [id]);
 
-  useEffect(() => {
-    void load();
-    const t = window.setInterval(() => void load(), 8000);
-    return () => window.clearInterval(t);
-  }, [load]);
+  useVisiblePolling(load, 8000);
 
   useEffect(() => {
     setSerialOk(typeof navigator !== 'undefined' && Boolean(navigator.serial));
@@ -422,7 +419,13 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
               Remove from list
             </Button>
           </div>
-          {!serialOk ? <p className="warn-text">USB and Bluetooth work in Chrome or Edge.</p> : null}
+          {!serialOk ? (
+            <p className="warn-text">
+              {bleOk
+                ? 'USB needs Chrome or Edge on a computer. From a phone, connect over Bluetooth.'
+                : 'USB and Bluetooth need Chrome or Edge on a computer.'}
+            </p>
+          ) : null}
         </div>
       )}
       {removeOpen ? (

@@ -103,26 +103,6 @@ export function connectionLabel(kind: ConnectionKind): string {
   return 'USB';
 }
 
-export function lastSeenAge(iso: string | null | undefined, now = Date.now()): {
-  label: string;
-  tone: 'ok' | 'warn' | 'off';
-} {
-  if (!iso) return { label: 'Never seen', tone: 'off' };
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return { label: 'Never seen', tone: 'off' };
-  const sec = Math.max(0, Math.floor((now - t) / 1000));
-  if (sec < 30) return { label: 'Just now', tone: 'ok' };
-  if (sec < 60) return { label: `${sec}s ago`, tone: 'ok' };
-  const min = Math.floor(sec / 60);
-  if (min < 2) return { label: `${min}m ${sec % 60}s ago`, tone: 'ok' };
-  if (min < 15) return { label: `${min}m ago`, tone: 'warn' };
-  const hr = Math.floor(min / 60);
-  if (min < 60) return { label: `${min}m ago`, tone: 'off' };
-  if (hr < 48) return { label: `${hr}h ago`, tone: 'off' };
-  const days = Math.floor(hr / 24);
-  return { label: `${days}d ago`, tone: 'off' };
-}
-
 export function startOfLocalDay(d = new Date()): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }

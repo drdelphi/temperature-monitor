@@ -47,6 +47,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  /* Draw under the notch and home indicator; the layout pads itself with env(safe-area-inset-*). */
+  viewportFit: 'cover',
   themeColor: '#10151c',
   colorScheme: 'dark',
 };

@@ -264,17 +264,18 @@ function ChannelRow({
 
   return (
     <tr>
-      <td>
+      {/* data-label feeds the one-card-per-row layout phones get; see globals.css. */}
+      <td data-label="Sensor">
         <span className="ch-pip" style={{ background: channelHue(ch.index) }} />
         {ch.index}
       </td>
-      <td>
+      <td data-label="On">
         <Toggle on={draft.enabled} onClick={() => onDraft({ enabled: !draft.enabled })} />
       </td>
-      <td>
+      <td data-label="Name" className="cell-wide">
         <input type="text" value={draft.name} onChange={(e) => onDraft({ name: e.target.value })} />
       </td>
-      <td>
+      <td data-label="Curve" className="cell-wide">
         <div className="curve-cell">
           <select value={curveId} onChange={(e) => onCurveChange(e.target.value)}>
             {NTC_CURVES.map((c) => (
@@ -298,7 +299,7 @@ function ChannelRow({
           ) : null}
         </div>
       </td>
-      <td className="narrow">
+      <td data-label="Every (seconds)" className="narrow">
         <input
           type="number"
           min={1}
@@ -308,9 +309,9 @@ function ChannelRow({
           onChange={(e) => onDraft({ intervalSec: e.target.value })}
         />
       </td>
-      <td className="num">{active ? formatTemp(ch.lastTempC) : null}</td>
-      <td className="num">{active ? formatOhm(ch.lastROhm) : null}</td>
-      <td className="num">
+      <td data-label="Temperature" className="num">{active ? formatTemp(ch.lastTempC) : null}</td>
+      <td data-label="Resistance" className="num">{active ? formatOhm(ch.lastROhm) : null}</td>
+      <td data-label="Adjustment" className="num">
         {isDefaultCal(draft) ? (
           <span className="hint">Default</span>
         ) : (
@@ -324,7 +325,7 @@ function ChannelRow({
           </div>
         ) : null}
       </td>
-      <td className="narrow">
+      <td data-label="Reference °C" className="narrow">
         <input
           type="number"
           step="0.01"
@@ -335,7 +336,7 @@ function ChannelRow({
           disabled={!active}
         />
       </td>
-      <td>
+      <td data-label="Calibrate" className="cell-wide">
         <div className="row">
           <button type="button" className="btn" onClick={applyOffset} disabled={!canCalibrate}>
             Match

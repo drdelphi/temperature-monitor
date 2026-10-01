@@ -120,19 +120,20 @@ export function AlarmPanel({
                 const d = drafts[alarmKey(ch.index, kind)] ?? emptyAlarmDraft();
                 return (
                   <tr key={alarmKey(ch.index, kind)}>
-                    <td>
+                    {/* data-label feeds the one-card-per-row layout phones get; see globals.css. */}
+                    <td data-label="Sensor" className="cell-wide">
                       <span className="ch-pip" style={{ background: channelHue(ch.index) }} />
                       {ch.name}
                     </td>
-                    <td>
+                    <td data-label="When">
                       <span className={kind === 'below' ? 'alarm-cold' : 'alarm-hot'}>
                         {alarmKindLabel(kind)}
                       </span>
                     </td>
-                    <td>
+                    <td data-label="On">
                       <Toggle on={d.enabled} onClick={() => set(ch.index, kind, { enabled: !d.enabled })} />
                     </td>
-                    <td>
+                    <td data-label="Limit °C">
                       <input
                         type="number"
                         step="0.1"
@@ -141,7 +142,7 @@ export function AlarmPanel({
                         onChange={(e) => set(ch.index, kind, { thresholdC: e.target.value })}
                       />
                     </td>
-                    <td>
+                    <td data-label="Reset gap °C">
                       <input
                         type="number"
                         step="0.1"
@@ -150,7 +151,7 @@ export function AlarmPanel({
                         onChange={(e) => set(ch.index, kind, { hysteresis: e.target.value })}
                       />
                     </td>
-                    <td>
+                    <td data-label="Wait (seconds)">
                       <input
                         type="number"
                         min={0}
@@ -160,14 +161,14 @@ export function AlarmPanel({
                         onChange={(e) => set(ch.index, kind, { cooldownSec: e.target.value })}
                       />
                     </td>
-                    <td>
+                    <td data-label="Telegram">
                       <input
                         type="checkbox"
                         checked={d.notifyTelegram}
                         onChange={(e) => set(ch.index, kind, { notifyTelegram: e.target.checked })}
                       />
                     </td>
-                    <td>
+                    <td data-label="SMS">
                       <input
                         type="checkbox"
                         checked={d.notifySms}

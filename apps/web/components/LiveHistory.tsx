@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL, CHANNEL_COUNT, SAMPLE_WARN_COUNT } from '@/lib/config';
 import { apiBlob, apiGet, queryString } from '@/lib/api';
@@ -12,11 +13,18 @@ import {
   startOfLocalDay,
   toLocalInput,
 } from '@/lib/format';
+import { useForegroundRefresh, useVisiblePolling } from '@/lib/poll';
 import { asRecord, type Channel, type Device, type Sample, normalizeSamples } from '@/lib/types';
 import { historyRows, liveChartSamples, mergeDaySamples, mergeSamples, coerceLiveTs } from '@/lib/samples';
 import { liveStreamUrl, openLiveStream } from '@/lib/ws';
-import { HistoryChart } from './charts';
 import { Button, ErrorText } from './ui';
+
+/* Recharts is the heaviest thing on the page. Loading it on its own lets a phone
+   paint and answer taps while the chart code is still coming down. */
+const HistoryChart = dynamic(() => import('./charts').then((m) => m.HistoryChart), {
+  ssr: false,
+  loading: () => <div className="chart-box busy">Drawing the chart…</div>,
+});
 
 function defaultRange(): { from: string; to: string } {
   const to = new Date();
@@ -133,17 +141,21 @@ export function LiveReadings({
   useEffect(() => {
     setHist([]);
     void loadDay();
-    let key = startOfLocalDay().toDateString();
-    const t = window.setInterval(() => {
-      const next = startOfLocalDay().toDateString();
-      if (next !== key) {
-        key = next;
-        setHist([]);
-        void loadDay();
-      }
-    }, 30_000);
-    return () => window.clearInterval(t);
   }, [loadDay]);
+
+  const dayKey = useRef(startOfLocalDay().toDateString());
+  const rollDay = useCallback(() => {
+    const next = startOfLocalDay().toDateString();
+    if (next === dayKey.current) return;
+    dayKey.current = next;
+    setHist([]);
+    void loadDay();
+  }, [loadDay]);
+
+  useVisiblePolling(rollDay, 30_000);
+  /* A phone suspends the live socket in the background, so the chart comes back
+     with a hole in it. Refetching the day on return fills it. */
+  useForegroundRefresh(loadDay);
 
   useEffect(() => {
     if (liveSamples.length === 0) return;
@@ -175,7 +187,7 @@ export function HistoryReadings({ device }: { device: Device }) {
     Array.from({ length: CHANNEL_COUNT }, (_, i) => device.channels[i]?.enabled !== false),
   );
   const [hist, setHist] = useState<Sample[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [warn, setWarn] = useState<string | null>(null);
   const enabledMask = enabledIndexMask(device.channels);
@@ -271,6 +283,8 @@ export function HistoryReadings({ device }: { device: Device }) {
       {warn ? <p className="warn-text">{warn}</p> : null}
       {enabledIdx.length === 0 ? (
         <div className="empty">Choose at least one sensor.</div>
+      ) : busy && rows.length === 0 ? (
+        <div className="chart-box busy">Loading readings…</div>
       ) : rows.length === 0 ? (
         <div className="empty">No readings in this time range.</div>
       ) : (

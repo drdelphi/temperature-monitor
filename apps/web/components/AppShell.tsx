@@ -19,6 +19,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNavOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
+
+  useEffect(() => {
     if (isLogin) {
       setReady(true);
       return;
@@ -76,6 +85,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         type="button"
         className="nav-toggle"
         aria-expanded={navOpen}
+        aria-controls="app-sidebar"
+        aria-label={navOpen ? 'Close the monitor menu' : 'Open the monitor menu'}
         onClick={() => setNavOpen((o) => !o)}
       >
         {navOpen ? 'Close' : 'Menu'}

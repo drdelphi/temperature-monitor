@@ -35,6 +35,8 @@ body {
   font-family: system-ui, 'Segoe UI', 'IBM Plex Sans', 'Helvetica Neue', sans-serif;
   font-size: 17px;
   line-height: 1.5;
+  /* Keep landscape phones from inflating body text on their own. */
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -160,6 +162,7 @@ input[type='checkbox'] {
   height: 100vh;
   height: 100dvh;
   overflow: auto;
+  overscroll-behavior: contain;
   z-index: 20;
 }
 
@@ -555,46 +558,6 @@ input[type='checkbox'] {
   margin-top: 14px;
 }
 
-.grid-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
-  margin-top: 16px;
-}
-
-.device-card {
-  display: block;
-  color: inherit;
-  text-decoration: none;
-  padding: 18px 20px;
-  border-left: 4px solid var(--accent);
-}
-
-.device-card:hover {
-  background: var(--card-hover);
-  text-decoration: none;
-}
-
-.device-card h2 {
-  margin: 0 0 8px;
-  font-size: 1.2rem;
-  line-height: 1.25;
-}
-
-.meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  color: var(--muted);
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-}
-
-.linked-badge {
-  color: var(--accent-hi);
-  font-weight: 600;
-}
-
 .dot {
   display: inline-block;
   width: 9px;
@@ -612,25 +575,6 @@ input[type='checkbox'] {
 }
 .dot.off {
   background: var(--off);
-}
-
-.ch-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 14px;
-}
-
-.ch-tag {
-  font-size: 13px;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  color: var(--muted);
-}
-
-.ch-tag.on {
-  color: var(--text);
 }
 
 .table-wrap {
@@ -763,7 +707,7 @@ table.data select {
 
 .wifi-layout {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 16px;
   width: 100%;
 }
@@ -863,9 +807,11 @@ table.data select {
 
 .login-wrap {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
 }
 
 .login-card {
@@ -931,6 +877,7 @@ table.data select {
   background: rgba(6, 8, 12, 0.62);
   display: grid;
   place-items: center;
+  padding: max(12px, env(safe-area-inset-top)) 0 max(12px, env(safe-area-inset-bottom));
   z-index: 50;
 }
 
@@ -955,11 +902,6 @@ table.data select {
 
 .modal-body p {
   margin: 0;
-}
-
-.spark {
-  height: 56px;
-  width: 180px;
 }
 
 .chart-box {
@@ -992,24 +934,6 @@ table.data select {
   margin-right: 8px;
   border-radius: 2px;
   vertical-align: middle;
-}
-
-.name-edit {
-  font-size: 1.75rem;
-  font-weight: 650;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  padding: 4px 8px;
-  margin: -4px 0 -4px -8px;
-  min-height: 0;
-  width: min(100%, 28rem);
-}
-
-.name-edit:hover,
-.name-edit:focus {
-  border-color: var(--line);
-  background: var(--input);
 }
 
 .hint {
@@ -1055,14 +979,55 @@ table.data select {
 }
 
 @media (max-width: 860px) {
+  /* Phones scroll the document instead of a nested pane: the browser chrome can
+     collapse, and focused inputs are scrolled into view above the keyboard. */
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+  }
+
+  body:has(.app-shell.nav-open) {
+    overflow: hidden;
+  }
+
+  .app-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .main {
+    overflow: visible;
+    padding: calc(56px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+      calc(16px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  }
+
+  .device-page:has(.chart-pane) {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  /* Without a pane to fill, the chart needs a height of its own. */
+  .chart-pane .chart-box,
+  .chart-pane .empty {
+    flex: 0 0 auto;
+    height: clamp(220px, 58dvh, 360px);
+    min-height: 0;
+  }
+
+  .chart-box {
+    padding: 10px 4px 4px;
+  }
+
   .nav-toggle {
     display: inline-flex;
     position: fixed;
-    top: 12px;
-    left: 12px;
+    top: calc(12px + env(safe-area-inset-top));
+    left: calc(12px + env(safe-area-inset-left));
     z-index: 40;
-    min-height: 38px;
-    padding: 6px 12px;
+    min-height: 44px;
+    padding: 6px 14px;
     background: var(--card);
     border: 1px solid var(--line-strong);
     border-radius: var(--radius);
@@ -1075,13 +1040,19 @@ table.data select {
     position: fixed;
     left: 0;
     top: 0;
+    width: min(280px, 86vw);
+    padding: calc(16px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom))
+      calc(14px + env(safe-area-inset-left));
     transform: translateX(-100%);
-    transition: transform 0.18s ease;
+    /* Hidden, not just off-screen: a closed drawer must not catch tab focus. */
+    visibility: hidden;
+    transition: transform 0.18s ease, visibility 0.18s ease;
     box-shadow: none;
   }
 
   .app-shell.nav-open .sidebar {
     transform: translateX(0);
+    visibility: visible;
     box-shadow: var(--shadow);
   }
 
@@ -1095,23 +1066,21 @@ table.data select {
     padding: 0;
   }
 
-  .main {
-    padding: 56px 14px 16px;
+  /* Sensor names stay readable: swipe the strip rather than squeeze every pick. */
+  .row.channel-picks {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
   }
 
-  .channel-picks {
-    gap: 4px;
+  .row.channel-picks .check {
+    flex: 0 0 auto;
   }
 
-  .channel-picks .check {
-    padding: 4px 4px;
-    gap: 4px;
-    font-size: 12px;
-  }
-
-  .channel-picks input[type='checkbox'] {
-    width: 1rem;
-    height: 1rem;
+  .row.channel-picks .check-name {
+    max-width: 9rem;
   }
 }
 
@@ -1130,8 +1099,7 @@ table.data select {
     align-items: flex-start;
   }
 
-  .page-head h1,
-  .name-edit {
+  .page-head h1 {
     font-size: 1.45rem;
   }
 
@@ -1142,5 +1110,117 @@ table.data select {
   .kv {
     grid-template-columns: 1fr;
     gap: 2px 0;
+  }
+
+  .toolbar > .field,
+  .row > .field {
+    flex: 1 1 100%;
+  }
+
+  .pane-tabs {
+    flex: 1 1 100%;
+  }
+
+  .pane-tabs button {
+    flex: 1 1 0;
+    padding: 8px 6px;
+  }
+
+  .pane-clock {
+    margin-left: 0;
+  }
+
+  /* Wide data tables become one card per row; a sideways-scrolling grid of
+     number inputs is unusable on a phone. */
+  .table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  table.data {
+    display: block;
+  }
+
+  table.data thead {
+    display: none;
+  }
+
+  table.data tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  table.data tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+    padding: 12px 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  table.data td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  table.data td.cell-wide {
+    grid-column: 1 / -1;
+  }
+
+  table.data td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .curve-cell {
+    min-width: 0;
+  }
+}
+
+/* Touch screens: controls grow to a comfortable tap size. */
+@media (pointer: coarse) {
+  :root {
+    --control-h: 46px;
+  }
+
+  input[type='checkbox'] {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+
+  .toggle {
+    width: 52px;
+    height: 30px;
+  }
+
+  .toggle i {
+    width: 24px;
+    height: 24px;
+  }
+
+  .pane-tabs button,
+  table.data input[type='text'],
+  table.data input[type='number'],
+  table.data select {
+    min-height: var(--control-h);
+  }
+
+  /* 16px is the threshold below which iOS Safari zooms in on a focused field. */
+  input,
+  select,
+  textarea {
+    font-size: max(1rem, 16px);
   }
 }

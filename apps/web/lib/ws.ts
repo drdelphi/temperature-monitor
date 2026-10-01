@@ -31,7 +31,7 @@ export function openLiveStream(
       delay = 500;
     };
     ws.onclose = () => {
-      if (closed || signal.aborted) return;
+      if (closed || signal.aborted || socket !== ws) return;
       timer = window.setTimeout(connect, delay);
       delay = Math.min(delay * 2, 8000);
     };
@@ -40,11 +40,26 @@ export function openLiveStream(
     };
   };
 
+  /* Phones drop the socket while the tab is in the background, and the backoff
+     may be most of a minute by the time the user looks again. Reconnect at once
+     when the tab comes back or the network returns. */
+  const resume = () => {
+    if (closed || signal.aborted || document.hidden) return;
+    if (socket && socket.readyState !== WebSocket.CLOSED) return;
+    window.clearTimeout(timer);
+    delay = 500;
+    connect();
+  };
+
   const abort = () => {
     closed = true;
     window.clearTimeout(timer);
+    document.removeEventListener('visibilitychange', resume);
+    window.removeEventListener('online', resume);
     socket?.close();
   };
   signal.addEventListener('abort', abort);
+  document.addEventListener('visibilitychange', resume);
+  window.addEventListener('online', resume);
   connect();
 }
