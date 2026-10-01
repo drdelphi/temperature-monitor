@@ -1,0 +1,64 @@
+---
+description: Production SSH, inspect, and deploy for temperatura.live — do not rediscover this.
+alwaysApply: true
+---
+
+# Production (agents)
+
+**Do not hunt for the host.** Same shared nginx box as Discendis / SRB Connect / Rollt.
+
+**HARD GATE:** Do not rsync, git-pull, compose-up, migrate, or edit remote nginx/`.env`
+unless the user explicitly asked to deploy or change production in this conversation.
+Read-only SSH/psql/curl **is** allowed when they ask to look at prod.
+
+Never use `sudo bash -lc 'cd ~/…'` (`~` becomes `/root`). Never `--remove-orphans`.
+Never touch sibling stacks (discendis, srb-connect, rollt, staking.agency).
+
+## Connect (Cloudflare is HTTP-only — do not SSH to temperatura.live)
+
+```bash
+ssh -i ~/.ssh/keys/priv/web -p 3008 -o IdentitiesOnly=yes elrond@45.128.116.8
+```
+
+- User **`elrond`**, key **`~/.ssh/keys/priv/web`**, port **3008**, origin **`45.128.116.8`** (`$THC3`)
+- App: **`/home/elrond/temperature-monitor`** (git clone of this repo)
+- Data: **`/home/elrond/temperature-monitor-data/pg`**
+- Compose project **`temperature-monitor`**, file `deploy/docker-compose.prod.yml`, env **remote** `.env` (never rsync it)
+- Nginx: `/etc/nginx/sites-available/temperature-monitor.conf` ← `deploy/nginx-temperature-monitor.conf`
+- Containers: `temperature-monitor-postgres-1`, `temperature-monitor-api-1`, `temperature-monitor-web-1`
+
+| Service | Localhost port |
+| --- | --- |
+| Web | **3030** |
+| API | **4030** |
+| Postgres | **5436** |
+
+Public: `https://temperatura.live` · `https://api.temperatura.live`
+
+## Inspect (read-only)
+
+```bash
+KEY=~/.ssh/keys/priv/web
+SSH="ssh -i $KEY -p 3008 -o IdentitiesOnly=yes elrond@45.128.116.8"
+$SSH 'cd /home/elrond/temperature-monitor && git log -1 --oneline && docker compose --env-file .env -f deploy/docker-compose.prod.yml ps'
+$SSH 'docker exec temperature-monitor-postgres-1 psql -U tempmon -d tempmon -c "SELECT id, name, \"lastSeen\", \"lastSeenVia\" FROM \"Device\";"'
+```
+
+Local Docker on this workstation is **not** production (`tempmon-pg` on `:5434`).
+
+## Deploy (only when asked)
+
+Push `main` first. On the server, `git pull` then rebuild **only** the service that changed
+(`web` / `api`; postgres almost never). `--env-file .env` is required (compose file lives in `deploy/`).
+
+```bash
+KEY=~/.ssh/keys/priv/web
+ssh -i "$KEY" -p 3008 -o IdentitiesOnly=yes elrond@45.128.116.8 \
+  'set -e; cd /home/elrond/temperature-monitor; git pull --ff-only;
+   docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d --build web'
+```
+
+API/schema: rebuild `api`, then `docker compose --env-file .env -f deploy/docker-compose.prod.yml exec -T api npx prisma migrate deploy`.
+After nginx file changes: copy vhost, `sudo nginx -t`, reload; curl siblings to confirm they still answer.
+
+Operator login is in the **remote** `.env` (`OWNER_EMAIL` / `OWNER_PASSWORD`), not the laptop `.env`.
