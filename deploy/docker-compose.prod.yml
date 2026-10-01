@@ -3,6 +3,10 @@ name: temperature-monitor
 # Production stack. Every published port is bound to 127.0.0.1 — nginx on the
 # host terminates TLS and proxies in. Ports follow the per-project convention
 # on the box (web 30x0, api 40x0, postgres 543x) so nothing collides.
+#
+# Run from the repo root so compose reads ./.env for interpolation:
+#
+#   docker compose -f deploy/docker-compose.prod.yml up -d --build
 
 services:
   postgres:
@@ -15,7 +19,9 @@ services:
     ports:
       - "127.0.0.1:5436:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Bind mount under /home/elrond, matching the other projects on the host
+      # so the nightly pg_dump/rsync backup picks it up the same way.
+      - /home/elrond/temperature-monitor-data/pg:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tempmon}"]
       interval: 5s
@@ -58,6 +64,3 @@ services:
       - "127.0.0.1:3030:3000"
     depends_on:
       - api
-
-volumes:
-  postgres_data:
