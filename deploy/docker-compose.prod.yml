@@ -1,0 +1,63 @@
+name: temperature-monitor
+
+# Production stack. Every published port is bound to 127.0.0.1 — nginx on the
+# host terminates TLS and proxies in. Ports follow the per-project convention
+# on the box (web 30x0, api 40x0, postgres 543x) so nothing collides.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tempmon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-tempmon}
+    ports:
+      - "127.0.0.1:5436:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tempmon}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: temperature-monitor-api
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tempmon}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tempmon}?schema=public
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:4030:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: temperature-monitor-web
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.temperatura.live}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://temperatura.live}
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.temperatura.live}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://temperatura.live}
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:3030:3000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
