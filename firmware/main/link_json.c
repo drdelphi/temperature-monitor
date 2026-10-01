@@ -190,8 +190,8 @@ static void handle_drain(tmp_link_t link, cJSON *req)
         send_obj(link, status_obj());
         return;
     }
-    /* Hold the flush lock for the whole browser drain session so Wi-Fi ingest
-     * cannot run as a second flusher. Released on empty batch, ingesting, or disconnect. */
+    /* One flusher at a time. Released after this batch so Wi-Fi ingest can
+     * take over once the station is up. Also released on ingesting or disconnect. */
     if (!s_local_drain) {
         if (!ring_log_lock_flush(0)) {
             send_obj(link, status_obj());
@@ -222,9 +222,7 @@ static void handle_drain(tmp_link_t link, cJSON *req)
     free(snaps);
     free(packed);
     send_obj(link, o);
-    if (n == 0) {
-        release_local_drain();
-    }
+    release_local_drain();
 }
 
 static int64_t ts_from_json(cJSON *ts)

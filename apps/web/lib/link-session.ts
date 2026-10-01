@@ -15,7 +15,7 @@ import {
   USB_ESP_VID,
 } from './config';
 import { drainRetryMs, flushAckFromIngest } from './drain';
-import { errorMessage, explainUsbOpenError } from './format';
+import { errorMessage, explainUsbOpenError, wifiIsLive } from './format';
 import { autoUsbEnabled, setAutoUsb } from './usb-auto';
 import {
   type ClaimResponse,
@@ -38,6 +38,13 @@ import {
 
 export type TransportKind = 'usb' | 'ble';
 
+export type RememberedWifi = {
+  deviceId: string;
+  wifiState: WifiState | null;
+  wifiInternet: boolean | null;
+  at: number;
+};
+
 export type LinkState = {
   transport: TransportKind | null;
   open: boolean;
@@ -57,7 +64,15 @@ export type LinkState = {
   rtcUnix: number | null;
   rtcReceivedAt: number | null;
   error: string | null;
+  rememberedWifi: RememberedWifi | null;
 };
+
+/** Pause the local drain this long while the monitor has internet, so its own HTTPS ingest can win. */
+const WIFI_YIELD_MS = 8_000;
+/** If internet never turns into a healthy ingest, drain over USB/Bluetooth anyway. */
+const WIFI_YIELD_GRACE_MS = 40_000;
+/** Status poll while drain is idle or yielding, so Wi-Fi changes are noticed without a status push. */
+const STATUS_POLL_MS = 5_000;
 
 const IDLE: LinkState = {
   transport: null,
@@ -78,6 +93,7 @@ const IDLE: LinkState = {
   rtcUnix: null,
   rtcReceivedAt: null,
   error: null,
+  rememberedWifi: null,
 };
 
 type Listener = (state: LinkState) => void;
@@ -396,6 +412,8 @@ export class LinkSession {
   private pump: Promise<void> | null = null;
   private connectChain: Promise<void> = Promise.resolve();
   private connectGen = 0;
+  private wifiYieldSince: number | null = null;
+  private lastStatusPoll = 0;
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
@@ -646,7 +664,12 @@ export class LinkSession {
         /* ignore */
       }
     }
-    this.patch({ ...IDLE, status: reason ? 'Not connected' : 'Disconnected', error: reason ?? null });
+    this.patch({
+      ...IDLE,
+      rememberedWifi: this.state.rememberedWifi,
+      status: reason ? 'Not connected' : 'Disconnected',
+      error: reason ?? null,
+    });
   }
 
   private loseLink(reason: string) {
@@ -662,7 +685,12 @@ export class LinkSession {
     this.write = null;
     this.closeTransport = null;
     if (close) void close().catch(() => undefined);
-    this.patch({ ...IDLE, status: 'Not connected', error: reason });
+    this.patch({
+      ...IDLE,
+      rememberedWifi: this.state.rememberedWifi,
+      status: 'Not connected',
+      error: reason,
+    });
   }
 
   async send(msg: HostToDevice): Promise<void> {
@@ -726,7 +754,28 @@ export class LinkSession {
 
   private patch(partial: Partial<LinkState>) {
     this.state = { ...this.state, ...partial };
+    this.captureRememberedWifi();
     for (const fn of this.listeners) fn(this.state);
+  }
+
+  private captureRememberedWifi() {
+    const id = this.state.deviceId;
+    if (!id) return;
+    if (wifiIsLive(this.state)) {
+      this.state = {
+        ...this.state,
+        rememberedWifi: {
+          deviceId: id,
+          wifiState: this.state.wifiState,
+          wifiInternet: this.state.wifiInternet,
+          at: Date.now(),
+        },
+      };
+      return;
+    }
+    if (this.state.rememberedWifi?.deviceId === id && this.state.wifiInternet === false) {
+      this.state = { ...this.state, rememberedWifi: null };
+    }
   }
 
   private bindPageLifecycle() {
@@ -758,6 +807,8 @@ export class LinkSession {
     this.abort = abort;
     this.stopDrain();
     this.identified = false;
+    this.wifiYieldSince = null;
+    this.lastStatusPoll = 0;
     this.patch({
       ...IDLE,
       transport,
@@ -885,6 +936,12 @@ export class LinkSession {
       this.patch({ status: 'Sending readings over Wi-Fi' });
       return;
     }
+    if (this.yieldsToWifi()) {
+      this.stopDrain();
+      this.patch({ status: 'Sending readings over Wi-Fi' });
+      this.scheduleDrain(WIFI_YIELD_MS);
+      return;
+    }
     if (this.identified && this.state.deviceId && !this.draining && (unackedCount ?? 0) > 0) {
       void this.startDrain();
     } else if (this.identified && this.state.deviceId && !this.draining) {
@@ -948,6 +1005,26 @@ export class LinkSession {
     this.clearDrainTimer();
   }
 
+  /** Wi-Fi has priority, but only while it is actually getting readings to the server. */
+  private yieldsToWifi(): boolean {
+    if (this.state.wifiInternet !== true) {
+      this.wifiYieldSince = null;
+      return false;
+    }
+    const now = Date.now();
+    if (this.wifiYieldSince == null) this.wifiYieldSince = now;
+    return now - this.wifiYieldSince < WIFI_YIELD_GRACE_MS;
+  }
+
+  /** Ask for status at most every STATUS_POLL_MS; the monitor does not push Wi-Fi changes. */
+  private pollStatus() {
+    if (!this.write || !this.identified) return;
+    const now = Date.now();
+    if (now - this.lastStatusPoll < STATUS_POLL_MS) return;
+    this.lastStatusPoll = now;
+    void this.send({ type: 'get_status' }).catch(() => undefined);
+  }
+
   private clearDrainTimer() {
     if (this.drainTimer != null) {
       clearTimeout(this.drainTimer);
@@ -969,6 +1046,11 @@ export class LinkSession {
     if (this.draining) return;
     if (!shouldDrain(this.state.wifiState)) return;
     if (!this.write || !this.state.deviceId) return;
+    if (this.yieldsToWifi()) {
+      this.pollStatus();
+      this.scheduleDrain(WIFI_YIELD_MS);
+      return;
+    }
     this.clearDrainTimer();
     this.draining = true;
     if (this.state.forwarding > 0) {
@@ -998,6 +1080,7 @@ export class LinkSession {
         forwarding: 0,
         status: this.state.open ? 'Connected' : this.state.status,
       });
+      this.pollStatus();
       this.scheduleDrain(drainRetryMs(false));
       return;
     }

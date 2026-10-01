@@ -3,6 +3,7 @@ import { ApiError } from './api';
 import {
   alarmKindLabel,
   connectionKinds,
+  connectionKindsFromLink,
   connectionLabel,
   errorMessage,
   explainUsbOpenError,
@@ -17,6 +18,7 @@ import {
   liveDayDomain,
   startOfLocalDay,
   transportLabel,
+  WIFI_LIVE_MS,
   wifiAuthLabel,
   wifiSignalLabel,
   wifiStateLabel,
@@ -110,7 +112,7 @@ describe('user-facing labels', () => {
         wifiInternet: true,
         wifiState: 'ingesting',
       }),
-    ).toEqual(['wifi', 'usb']);
+    ).toEqual(['wifi']);
     expect(
       connectionKinds({
         lastSeen: '2026-10-01T11:59:55Z',
@@ -134,6 +136,68 @@ describe('user-facing labels', () => {
         linked: false,
         now,
       }),
+    ).toEqual([]);
+  });
+
+  it('gives Wi-Fi priority over a live Bluetooth or USB link', () => {
+    expect(
+      connectionKinds({
+        linked: true,
+        transport: 'ble',
+        wifiInternet: true,
+        wifiState: 'failed',
+      }),
+    ).toEqual(['wifi']);
+    expect(
+      connectionKinds({
+        linked: true,
+        transport: 'usb',
+        wifiInternet: true,
+        wifiState: 'ingesting',
+      }),
+    ).toEqual(['wifi']);
+  });
+
+  it('keeps the Wi-Fi badge after the local link drops', () => {
+    const now = Date.parse('2026-10-01T12:00:00Z');
+    const device = {
+      id: 'AABBCCDDEEFF',
+      lastSeen: '2026-10-01T11:59:50Z',
+      lastSeenVia: 'local' as const,
+    };
+    expect(
+      connectionKindsFromLink(
+        device,
+        {
+          open: false,
+          deviceId: null,
+          transport: null,
+          rememberedWifi: {
+            deviceId: 'AABBCCDDEEFF',
+            wifiInternet: true,
+            wifiState: 'failed',
+            at: now - 1_000,
+          },
+        },
+        now,
+      ),
+    ).toEqual(['wifi']);
+    expect(
+      connectionKindsFromLink(
+        device,
+        {
+          open: false,
+          deviceId: null,
+          transport: null,
+          rememberedWifi: {
+            deviceId: 'AABBCCDDEEFF',
+            wifiInternet: true,
+            wifiState: 'failed',
+            at: now - WIFI_LIVE_MS - 1,
+          },
+        },
+        now,
+      ),
     ).toEqual([]);
   });
 

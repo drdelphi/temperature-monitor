@@ -31,6 +31,13 @@ function ingestAgeMs(iso: string | null | undefined, now: number): number | null
   return now - t;
 }
 
+export function wifiIsLive(opts: {
+  wifiInternet?: boolean | null;
+  wifiState?: string | null;
+}): boolean {
+  return opts.wifiState !== 'unset' && (opts.wifiState === 'ingesting' || opts.wifiInternet === true);
+}
+
 export function connectionKinds(opts: {
   lastSeen?: string | null;
   lastSeenVia?: string | null;
@@ -42,17 +49,52 @@ export function connectionKinds(opts: {
 }): ConnectionKind[] {
   const out: ConnectionKind[] = [];
   const linked = opts.linked && Boolean(opts.transport);
-  const wifiHere =
-    linked &&
-    opts.wifiState !== 'unset' &&
-    (opts.wifiState === 'ingesting' || opts.wifiInternet === true);
   const age = ingestAgeMs(opts.lastSeen, opts.now ?? Date.now());
   const wifiRemote =
     !linked && opts.lastSeenVia === 'wifi' && age != null && age >= 0 && age < WIFI_LIVE_MS;
-  if (wifiHere || wifiRemote) out.push('wifi');
+  const wifi = wifiIsLive(opts) || wifiRemote;
+  if (wifi) out.push('wifi');
+  /* Wi-Fi / internet wins, same order as the device LED. */
+  if (wifi) return out;
   if (linked && opts.transport === 'ble') out.push('bluetooth');
   if (linked && opts.transport === 'usb') out.push('usb');
   return out;
+}
+
+export function connectionKindsFromLink(
+  device: { id: string; lastSeen?: string | null; lastSeenVia?: string | null },
+  link: {
+    open: boolean;
+    deviceId: string | null;
+    transport?: string | null;
+    wifiInternet?: boolean | null;
+    wifiState?: string | null;
+    rememberedWifi?: {
+      deviceId: string;
+      wifiInternet: boolean | null;
+      wifiState: string | null;
+      at: number;
+    } | null;
+  },
+  now = Date.now(),
+): ConnectionKind[] {
+  const linked = Boolean(link.open && link.deviceId === device.id);
+  const mem = link.rememberedWifi;
+  const memFresh =
+    !linked &&
+    mem != null &&
+    mem.deviceId === device.id &&
+    now - mem.at >= 0 &&
+    now - mem.at < WIFI_LIVE_MS;
+  return connectionKinds({
+    lastSeen: device.lastSeen,
+    lastSeenVia: device.lastSeenVia,
+    linked,
+    transport: linked ? link.transport : null,
+    wifiInternet: linked ? link.wifiInternet : memFresh ? mem.wifiInternet : null,
+    wifiState: linked ? link.wifiState : memFresh ? mem.wifiState : null,
+    now,
+  });
 }
 
 export function connectionLabel(kind: ConnectionKind): string {

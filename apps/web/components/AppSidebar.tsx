@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
-import { connectionKinds, connectionLabel, errorMessage } from '@/lib/format';
+import { connectionKindsFromLink, connectionLabel, errorMessage } from '@/lib/format';
 import { requestLeave } from '@/lib/leave-guard';
 import { type LinkState, linkSession, useLinkSession } from '@/lib/link-session';
 import { type Device, normalizeDevices } from '@/lib/types';
@@ -116,15 +116,7 @@ function MonitorCard({
   active: boolean;
   link: LinkState;
 }) {
-  const linked = Boolean(link.open && link.deviceId === device.id);
-  const kinds = connectionKinds({
-    lastSeen: device.lastSeen,
-    lastSeenVia: device.lastSeenVia,
-    linked,
-    transport: linked ? link.transport : null,
-    wifiInternet: linked ? link.wifiInternet : null,
-    wifiState: linked ? link.wifiState : null,
-  });
+  const kinds = connectionKindsFromLink(device, link);
   return (
     <Link
       href={`/devices/${encodeURIComponent(device.id)}`}

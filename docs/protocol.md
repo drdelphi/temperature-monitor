@@ -35,7 +35,7 @@ Disabled channels are stored as **0xFFE** (4094). 0 and 4095 remain valid readin
 | `down` | Credentials set, not associated |
 | `unset` | No SSID stored |
 
-The browser **drains the ring only when `wifiState !== "ingesting"`**. Two drainers are not allowed.
+The browser **drains the ring only when `wifiState !== "ingesting"`**. Two drainers are not allowed. When the station has internet, the browser pauses drain so HTTPS ingest can become healthy. The device releases the local flush lock on GOT_IP and after each drain batch so Wi-Fi can take over. Wi-Fi / internet has priority over USB and Bluetooth (same as the status LED).
 
 ## Durability
 

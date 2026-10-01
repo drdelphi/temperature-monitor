@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiGet, apiSend } from '@/lib/api';
 import {
-  connectionKinds,
+  connectionKindsFromLink,
   errorMessage,
   formatMac,
   formatRtcDateTime,
@@ -288,15 +288,9 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
   const linkedHere = Boolean(link.open && link.deviceId === device.id);
   const rtcUnix = linkedHere ? link.rtcUnix : sampleRtc?.unix ?? null;
   const rtcReceivedAt = linkedHere ? link.rtcReceivedAt : sampleRtc?.at ?? null;
-  const kinds = connectionKinds({
-    lastSeen: device.lastSeen,
-    lastSeenVia: device.lastSeenVia,
-    linked: linkedHere,
-    transport: linkedHere ? link.transport : null,
-    wifiInternet: linkedHere ? link.wifiInternet : null,
-    wifiState: linkedHere ? link.wifiState : null,
-  });
+  const kinds = connectionKindsFromLink(device, link);
   const connected = kinds.length > 0;
+  const wifiLive = kinds.includes('wifi');
   const leaveDialog = discardCopy(sensorsDirty, alertsDirty);
 
   return (
@@ -308,7 +302,9 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
         </div>
         <div className="page-head-status">
           <p className="status-line">
-            {linkedHere && !link.error ? (
+            {wifiLive ? (
+              <>Connected over the internet</>
+            ) : linkedHere && !link.error ? (
               <>
                 Connected over <strong>{transportLabel(link.transport) || 'cable'}</strong>
                 {link.status && link.status !== 'Connected' && link.status !== 'Not connected' ? (
