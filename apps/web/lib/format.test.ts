@@ -6,7 +6,16 @@ import {
   connectionLabel,
   errorMessage,
   explainUsbOpenError,
+  dayAxisTicks,
+  formatDayAxisTick,
+  formatRtcDateTime,
+  formatTsMinute,
+  liveRtcUnix,
+  unixFromIso,
   linkBarLabel,
+  localDayDomain,
+  liveDayDomain,
+  startOfLocalDay,
   transportLabel,
   wifiAuthLabel,
   wifiSignalLabel,
@@ -84,37 +93,75 @@ describe('user-facing labels', () => {
     expect(connectionLabel('usb')).toBe('USB');
   });
 
-  it('shows Wi-Fi, Bluetooth, and USB badges from live links and recent ingest', () => {
+  it('shows USB and Bluetooth from the live local link only', () => {
+    expect(connectionKinds({ linked: true, transport: 'usb' })).toEqual(['usb']);
+    expect(connectionKinds({ linked: true, transport: 'ble' })).toEqual(['bluetooth']);
+  });
+
+  it('shows Wi-Fi only while the monitor is actually on Wi-Fi', () => {
     const now = Date.parse('2026-10-01T12:00:00Z');
     expect(
-      connectionKinds({ lastSeen: null, linked: true, transport: 'usb' }),
-    ).toEqual(['usb']);
-    expect(
-      connectionKinds({ lastSeen: null, linked: true, transport: 'ble' }),
-    ).toEqual(['bluetooth']);
-    expect(
       connectionKinds({
-        lastSeen: '2026-10-01T11:59:50Z',
         linked: true,
         transport: 'usb',
         wifiInternet: true,
-        now,
+        wifiState: 'ingesting',
       }),
     ).toEqual(['wifi', 'usb']);
     expect(
       connectionKinds({
-        lastSeen: '2026-10-01T11:59:50Z',
+        lastSeen: '2026-10-01T11:59:55Z',
+        lastSeenVia: 'wifi',
         linked: false,
         now,
       }),
     ).toEqual(['wifi']);
     expect(
       connectionKinds({
-        lastSeen: '2026-10-01T11:00:00Z',
+        lastSeen: '2026-10-01T11:59:00Z',
+        lastSeenVia: 'wifi',
         linked: false,
         now,
       }),
     ).toEqual([]);
+    expect(
+      connectionKinds({
+        lastSeen: '2026-10-01T11:00:00Z',
+        lastSeenVia: 'wifi',
+        linked: false,
+        now,
+      }),
+    ).toEqual([]);
+  });
+
+  it('does not treat USB drain as Wi-Fi', () => {
+    const now = Date.parse('2026-10-01T12:00:00Z');
+    expect(
+      connectionKinds({
+        lastSeen: '2026-10-01T11:59:55Z',
+        lastSeenVia: 'local',
+        linked: false,
+        now,
+      }),
+    ).toEqual([]);
+    expect(
+      connectionKinds({
+        lastSeen: '2026-10-01T11:59:55Z',
+        linked: false,
+        now,
+      }),
+    ).toEqual([]);
+    expect(
+      connectionKinds({
+        lastSeen: '2026-10-01T11:59:55Z',
+        lastSeenVia: 'wifi',
+        linked: true,
+        transport: 'usb',
+        wifiState: 'unset',
+        wifiInternet: false,
+        now,
+      }),
+    ).toEqual(['usb']);
   });
 
   it('names Wi-Fi states without jargon', () => {
@@ -135,5 +182,67 @@ describe('user-facing labels', () => {
   it('names alert kinds in everyday words', () => {
     expect(alarmKindLabel('below')).toBe('Too cold');
     expect(alarmKindLabel('above')).toBe('Too hot');
+  });
+});
+
+describe('local day helpers', () => {
+  it('returns midnight on the local calendar day', () => {
+    const d = new Date(2026, 9, 1, 15, 30, 45);
+    expect(startOfLocalDay(d)).toEqual(new Date(2026, 9, 1));
+  });
+
+  it('formats hour and minute in local time', () => {
+    expect(formatTsMinute(new Date(2026, 9, 1, 9, 5, 30).toISOString())).toBe('09:05');
+  });
+
+  it('spans midnight to the next midnight', () => {
+    const [from, to] = localDayDomain(new Date(2026, 9, 1, 15, 30, 45));
+    expect(from).toBe(new Date(2026, 9, 1).getTime());
+    expect(to).toBe(new Date(2026, 9, 2).getTime());
+  });
+
+  it('starts the live day at the first sample', () => {
+    const now = new Date(2026, 9, 1, 15, 30, 45);
+    const first = new Date(2026, 9, 1, 8, 37, 12).getTime();
+    const [from, to] = liveDayDomain(first, now);
+    expect(from).toBe(first);
+    expect(to).toBe(new Date(2026, 9, 2).getTime());
+  });
+
+  it('keeps midnight when there is no sample yet', () => {
+    const now = new Date(2026, 9, 1, 15, 30, 45);
+    expect(liveDayDomain(null, now)).toEqual(localDayDomain(now));
+  });
+
+  it('labels the end of the day as 24:00', () => {
+    const [from, to] = localDayDomain(new Date(2026, 9, 1));
+    expect(formatDayAxisTick(from, to)).toBe('00:00');
+    expect(formatDayAxisTick(to, to)).toBe('24:00');
+  });
+
+  it('uses sample times as live-day ticks, plus the day end', () => {
+    const first = new Date(2026, 9, 1, 8, 37).getTime();
+    const mid = new Date(2026, 9, 1, 10, 4, 12).getTime();
+    const end = new Date(2026, 9, 2).getTime();
+    const ticks = dayAxisTicks(first, end, [first, mid]);
+    expect(ticks).toEqual([first, mid, end]);
+  });
+});
+
+describe('device RTC clock', () => {
+  it('formats date and time without seconds', () => {
+    const unix = Math.floor(new Date(2026, 9, 1, 18, 53, 41).getTime() / 1000);
+    expect(formatRtcDateTime(unix)).toBe('2026-10-01 18:53');
+  });
+
+  it('advances a stored RTC snapshot by elapsed seconds', () => {
+    expect(liveRtcUnix(1_000, 5_000, 8_000)).toBe(1_003);
+    expect(liveRtcUnix(null, 5_000, 8_000)).toBeNull();
+    expect(liveRtcUnix(0, 5_000, 8_000)).toBeNull();
+  });
+
+  it('parses unix seconds from an ISO timestamp', () => {
+    expect(unixFromIso('2026-10-01T12:00:00.000Z')).toBe(Date.parse('2026-10-01T12:00:00.000Z') / 1000);
+    expect(unixFromIso('nope')).toBeNull();
   });
 });

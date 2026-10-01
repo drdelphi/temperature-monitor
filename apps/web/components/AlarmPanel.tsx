@@ -1,78 +1,64 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CHANNEL_COUNT } from '@/lib/config';
 import { apiSend } from '@/lib/api';
+import {
+  type AlarmDraft,
+  alarmKey,
+  draftsFromAlarms,
+  emptyAlarmDraft,
+  isAlarmsDirty,
+} from '@/lib/alarm-drafts';
+import { CHANNEL_COUNT } from '@/lib/config';
 import { channelHue } from '@/lib/colors';
 import { errorMessage, alarmKindLabel } from '@/lib/format';
 import type { Alarm, AlarmKind, Device } from '@/lib/types';
 import { Button, ErrorText, Toggle } from './ui';
 
-type Draft = {
-  enabled: boolean;
-  thresholdC: string;
-  hysteresis: string;
-  cooldownSec: string;
-  notifyTelegram: boolean;
-  notifySms: boolean;
-};
-
-function emptyDraft(): Draft {
-  return {
-    enabled: false,
-    thresholdC: '',
-    hysteresis: '0.5',
-    cooldownSec: '300',
-    notifyTelegram: false,
-    notifySms: false,
-  };
-}
-
-function fromAlarm(a?: Alarm): Draft {
-  if (!a) return emptyDraft();
-  return {
-    enabled: a.enabled,
-    thresholdC: String(a.thresholdC),
-    hysteresis: String(a.hysteresis),
-    cooldownSec: String(a.cooldownSec),
-    notifyTelegram: a.notifyTelegram,
-    notifySms: a.notifySms,
-  };
-}
-
-function findAlarm(alarms: Alarm[], channel: number, kind: AlarmKind): Alarm | undefined {
-  return alarms.find((a) => a.channel === channel && a.kind === kind);
-}
-
 export function AlarmPanel({
   device,
   alarms,
   onChange,
+  onDirtyChange,
 }: {
   device: Device;
   alarms: Alarm[];
   onChange: () => Promise<void> | void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [drafts, setDrafts] = useState(() => draftsFromAlarms(alarms));
+  const [saved, setSaved] = useState(() => draftsFromAlarms(alarms));
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const dirty = isAlarmsDirty(drafts, saved);
+
   useEffect(() => {
-    const next: Record<string, Draft> = {};
-    for (let i = 0; i < CHANNEL_COUNT; i++) {
-      next[`${i}-below`] = fromAlarm(findAlarm(alarms, i, 'below'));
-      next[`${i}-above`] = fromAlarm(findAlarm(alarms, i, 'above'));
-    }
+    const next = draftsFromAlarms(alarms);
     setDrafts(next);
-  }, [alarms]);
+    setSaved(next);
+    setErr(null);
+  }, [device.id]);
 
-  function key(ch: number, kind: AlarmKind) {
-    return `${ch}-${kind}`;
-  }
+  useEffect(() => {
+    if (dirty || busy) return;
+    const server = draftsFromAlarms(alarms);
+    if (!isAlarmsDirty(server, saved)) return;
+    setDrafts(server);
+    setSaved(server);
+  }, [alarms, dirty, saved, busy]);
 
-  function set(ch: number, kind: AlarmKind, patch: Partial<Draft>) {
-    const k = key(ch, kind);
-    setDrafts((d) => ({ ...d, [k]: { ...(d[k] ?? emptyDraft()), ...patch } }));
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange]);
+
+  function set(ch: number, kind: AlarmKind, patch: Partial<AlarmDraft>) {
+    const k = alarmKey(ch, kind);
+    setDrafts((d) => ({ ...d, [k]: { ...(d[k] ?? emptyAlarmDraft()), ...patch } }));
   }
 
   async function save() {
@@ -82,7 +68,7 @@ export function AlarmPanel({
       const body: Alarm[] = [];
       for (let i = 0; i < CHANNEL_COUNT; i++) {
         for (const kind of ['below', 'above'] as AlarmKind[]) {
-          const d = drafts[key(i, kind)] ?? emptyDraft();
+          const d = drafts[alarmKey(i, kind)] ?? emptyAlarmDraft();
           body.push({
             channel: i,
             kind,
@@ -96,6 +82,7 @@ export function AlarmPanel({
         }
       }
       await apiSend(`/v1/devices/${encodeURIComponent(device.id)}/alarms`, 'PUT', body);
+      setSaved(drafts);
       await onChange();
     } catch (e) {
       setErr(errorMessage(e));
@@ -128,9 +115,9 @@ export function AlarmPanel({
           <tbody>
             {device.channels.map((ch) =>
               (['below', 'above'] as AlarmKind[]).map((kind) => {
-                const d = drafts[key(ch.index, kind)] ?? emptyDraft();
+                const d = drafts[alarmKey(ch.index, kind)] ?? emptyAlarmDraft();
                 return (
-                  <tr key={key(ch.index, kind)}>
+                  <tr key={alarmKey(ch.index, kind)}>
                     <td>
                       <span className="ch-pip" style={{ background: channelHue(ch.index) }} />
                       {ch.name}
@@ -193,8 +180,8 @@ export function AlarmPanel({
         </table>
       </div>
       <div className="row mt">
-        <Button variant="primary" disabled={busy} onClick={() => void save()}>
-          Save alerts
+        <Button variant="primary" disabled={busy || !dirty} onClick={() => void save()}>
+          {busy ? 'Saving…' : 'Save alerts'}
         </Button>
       </div>
     </div>

@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ApiError, apiGet, apiSend } from '@/lib/api';
+import { requestLeave } from '@/lib/leave-guard';
 import { linkSession } from '@/lib/link-session';
 import { AppSidebar } from './AppSidebar';
 
@@ -49,12 +50,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [ready, isLogin]);
 
   async function logout() {
-    try {
-      await apiSend('/v1/auth/logout', 'POST');
-    } catch {
-      /* cookie may already be gone */
-    }
-    router.replace('/login');
+    requestLeave(() => {
+      void (async () => {
+        try {
+          await apiSend('/v1/auth/logout', 'POST');
+        } catch {
+          /* cookie may already be gone */
+        }
+        router.replace('/login');
+      })();
+    });
   }
 
   if (isLogin) {

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { apiGet } from '@/lib/api';
 import { connectionKinds, connectionLabel, errorMessage } from '@/lib/format';
+import { requestLeave } from '@/lib/leave-guard';
 import { type LinkState, linkSession, useLinkSession } from '@/lib/link-session';
 import { type Device, normalizeDevices } from '@/lib/types';
 import { Button, ErrorText } from './ui';
@@ -51,7 +52,7 @@ export function AppSidebar({ onLogout }: { onLogout: () => void }) {
       const id = linkSession.deviceId();
       if (id) {
         await load();
-        router.push(`/devices/${encodeURIComponent(id)}`);
+        requestLeave(() => router.push(`/devices/${encodeURIComponent(id)}`));
       }
     } catch (e) {
       if ((e as { name?: string }).name === 'NotFoundError') return;
@@ -118,6 +119,7 @@ function MonitorCard({
   const linked = Boolean(link.open && link.deviceId === device.id);
   const kinds = connectionKinds({
     lastSeen: device.lastSeen,
+    lastSeenVia: device.lastSeenVia,
     linked,
     transport: linked ? link.transport : null,
     wifiInternet: linked ? link.wifiInternet : null,

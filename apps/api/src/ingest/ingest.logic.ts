@@ -15,6 +15,13 @@ export type ChannelCal = {
   offset: number;
 };
 
+export type LastSeenVia = 'wifi' | 'local';
+
+/** Device-token ingest is Wi-Fi. Operator JWT ingest is USB/Bluetooth drain. */
+export function lastSeenViaForAuth(authKind: string | undefined): LastSeenVia {
+  return authKind === 'device' ? 'wifi' : 'local';
+}
+
 export type SampleRow = {
   deviceId: string;
   ts: Date;

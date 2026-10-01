@@ -19,6 +19,7 @@ export type PublicDevice = {
   id: string;
   name: string;
   lastSeen: Date | null;
+  lastSeenVia: 'wifi' | 'local' | null;
   apiBaseUrl: string | null;
   pendingUnixTime: number | null;
   configRev: number;
@@ -55,6 +56,7 @@ export function publicDevice(
     id: device.id,
     name: device.name,
     lastSeen: device.lastSeen,
+    lastSeenVia: device.lastSeenVia,
     apiBaseUrl: device.apiBaseUrl,
     pendingUnixTime: device.pendingUnixTime != null ? Number(device.pendingUnixTime) : null,
     configRev: device.configRev,

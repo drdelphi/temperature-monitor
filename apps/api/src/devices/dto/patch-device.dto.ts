@@ -1,5 +1,5 @@
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
+import { IsInt, IsOptional, IsString, Min, ValidateIf } from 'class-validator';
 
 export class PatchDeviceDto {
   @IsOptional()
@@ -7,8 +7,9 @@ export class PatchDeviceDto {
   name?: string;
 
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => (value == null || value === '' ? null : Number(value)))
+  @ValidateIf((_, v) => v != null)
   @IsInt()
   @Min(0)
-  pendingUnixTime?: number;
+  pendingUnixTime?: number | null;
 }

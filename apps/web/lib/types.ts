@@ -21,10 +21,13 @@ export type Channel = {
   lastTs: string | null;
 };
 
+export type LastSeenVia = 'wifi' | 'local';
+
 export type Device = {
   id: string;
   name: string;
   lastSeen: string | null;
+  lastSeenVia: LastSeenVia | null;
   pendingUnixTime: number | null;
   configRev: number;
   channels: Channel[];
@@ -303,6 +306,7 @@ export function normalizeDevice(raw: unknown): Device {
     id,
     name: str(inner.name, id || 'Device'),
     lastSeen: typeof inner.lastSeen === 'string' ? inner.lastSeen : null,
+    lastSeenVia: inner.lastSeenVia === 'wifi' || inner.lastSeenVia === 'local' ? inner.lastSeenVia : null,
     pendingUnixTime: numOrNull(inner.pendingUnixTime),
     configRev: Math.max(1, Math.floor(num(inner.configRev, 1))),
     channels,

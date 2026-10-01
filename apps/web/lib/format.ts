@@ -21,8 +21,19 @@ export function formatMac(id: string): string {
 
 export type ConnectionKind = 'wifi' | 'bluetooth' | 'usb';
 
+/** Wi-Fi ingest heartbeat. Longer than the 5s poll, shorter than “seen recently”. */
+export const WIFI_LIVE_MS = 20_000;
+
+function ingestAgeMs(iso: string | null | undefined, now: number): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return null;
+  return now - t;
+}
+
 export function connectionKinds(opts: {
-  lastSeen: string | null | undefined;
+  lastSeen?: string | null;
+  lastSeenVia?: string | null;
   linked: boolean;
   transport?: string | null;
   wifiInternet?: boolean | null;
@@ -31,8 +42,13 @@ export function connectionKinds(opts: {
 }): ConnectionKind[] {
   const out: ConnectionKind[] = [];
   const linked = opts.linked && Boolean(opts.transport);
-  const wifiHere = linked && (opts.wifiInternet === true || opts.wifiState === 'ingesting');
-  const wifiRemote = !linked && lastSeenAge(opts.lastSeen, opts.now).tone === 'ok';
+  const wifiHere =
+    linked &&
+    opts.wifiState !== 'unset' &&
+    (opts.wifiState === 'ingesting' || opts.wifiInternet === true);
+  const age = ingestAgeMs(opts.lastSeen, opts.now ?? Date.now());
+  const wifiRemote =
+    !linked && opts.lastSeenVia === 'wifi' && age != null && age >= 0 && age < WIFI_LIVE_MS;
   if (wifiHere || wifiRemote) out.push('wifi');
   if (linked && opts.transport === 'ble') out.push('bluetooth');
   if (linked && opts.transport === 'usb') out.push('usb');
@@ -63,6 +79,49 @@ export function lastSeenAge(iso: string | null | undefined, now = Date.now()): {
   if (hr < 48) return { label: `${hr}h ago`, tone: 'off' };
   const days = Math.floor(hr / 24);
   return { label: `${days}d ago`, tone: 'off' };
+}
+
+export function startOfLocalDay(d = new Date()): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+export function endOfLocalDay(d = new Date()): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+}
+
+export function localDayDomain(d = new Date()): [number, number] {
+  const start = startOfLocalDay(d);
+  return [start.getTime(), endOfLocalDay(start).getTime()];
+}
+
+export function liveDayDomain(firstTs: string | number | null | undefined, now = new Date()): [number, number] {
+  const [dayStart, dayEnd] = localDayDomain(now);
+  const first = typeof firstTs === 'number' ? firstTs : firstTs == null ? Number.NaN : Date.parse(String(firstTs));
+  if (!Number.isFinite(first)) return [dayStart, dayEnd];
+  return [Math.min(dayEnd, Math.max(dayStart, first)), dayEnd];
+}
+
+export function dayAxisTicks(from: number, to: number, sampleTimes: Array<string | number> = []): number[] {
+  const ticks: number[] = [];
+  const seen = new Set<number>();
+  const add = (raw: string | number) => {
+    const t = typeof raw === 'number' ? raw : Date.parse(String(raw));
+    if (!Number.isFinite(t) || t < from || t > to || seen.has(t)) return;
+    seen.add(t);
+    ticks.push(t);
+  };
+  add(from);
+  for (const s of sampleTimes) add(s);
+  add(to);
+  ticks.sort((a, b) => a - b);
+  return ticks;
+}
+
+export function formatDayAxisTick(ms: number, dayEnd: number): string {
+  if (ms >= dayEnd) return '24:00';
+  const d = new Date(ms);
+  if (!Number.isFinite(d.getTime())) return '';
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 export function toLocalInput(d: Date): string {
@@ -252,10 +311,40 @@ export function formatTs(iso: string): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
+export function formatTsMinute(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return iso;
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 export function formatTsFull(iso: string): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return iso;
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+export function formatRtcDateTime(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  if (!Number.isFinite(d.getTime())) return '—';
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+export function liveRtcUnix(
+  snapshotUnix: number | null | undefined,
+  snapshotAtMs: number | null | undefined,
+  nowMs = Date.now(),
+): number | null {
+  if (snapshotUnix == null || snapshotUnix <= 0 || snapshotAtMs == null) return null;
+  const elapsed = Math.max(0, Math.floor((nowMs - snapshotAtMs) / 1000));
+  return snapshotUnix + elapsed;
+}
+
+export function unixFromIso(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const unix = Math.floor(t / 1000);
+  return unix > 0 ? unix : null;
 }
 
 export function maxTs(samples: Array<{ ts: string }>): string | null {

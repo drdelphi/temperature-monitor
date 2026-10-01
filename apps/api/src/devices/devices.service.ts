@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import type { ClaimDeviceDto } from './dto/claim.dto';
 import type { PatchDeviceDto } from './dto/patch-device.dto';
 import type { PatchChannelDto } from './dto/patch-channel.dto';
+import { devicePatchData, shouldConsumePendingTime } from './devices.logic';
 import type { Device } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
@@ -99,21 +100,9 @@ export class DevicesService {
 
   async patch(id: string, dto: PatchDeviceDto) {
     await this.require(id);
-    const data: {
-      name?: string;
-      pendingUnixTime?: bigint;
-      configRev?: { increment: number };
-    } = {};
-    if (dto.name !== undefined) {
-      data.name = dto.name;
-    }
-    if (dto.pendingUnixTime !== undefined) {
-      data.pendingUnixTime = BigInt(dto.pendingUnixTime);
-      data.configRev = { increment: 1 };
-    }
     const device = await this.prisma.device.update({
       where: { id: normalizeDeviceId(id) },
-      data,
+      data: devicePatchData(dto),
       include: channelInclude,
     });
     return this.toPublic(device);
@@ -124,9 +113,16 @@ export class DevicesService {
     if (actor.authKind === 'device' && actor.device && actor.device.id !== device.id) {
       throw new ForbiddenException('This monitor is not authorized.');
     }
+    const pendingUnixTime = device.pendingUnixTime != null ? Number(device.pendingUnixTime) : null;
+    if (shouldConsumePendingTime(actor.authKind) && pendingUnixTime != null) {
+      await this.prisma.device.update({
+        where: { id: device.id },
+        data: { pendingUnixTime: null },
+      });
+    }
     return {
       configRev: device.configRev,
-      pendingUnixTime: device.pendingUnixTime != null ? Number(device.pendingUnixTime) : null,
+      pendingUnixTime,
       channels: (device.channels ?? []).map((ch) => ({
         index: ch.index,
         name: ch.name,

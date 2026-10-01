@@ -13,41 +13,100 @@ import {
 import { channelHue } from '@/lib/colors';
 import { errorMessage, formatOhm, formatTemp } from '@/lib/format';
 import { linkSession } from '@/lib/link-session';
+import {
+  type ChannelDraft,
+  channelPatchBody,
+  draftsFromChannels,
+  isSensorsDirty,
+  normalizeDraft,
+  validateDrafts,
+} from '@/lib/sensor-drafts';
 import type { Channel, Device } from '@/lib/types';
-import { Toggle } from './ui';
+import { Button, Toggle } from './ui';
 
 type CalPoint = { raw: number; ref: number };
 
 export function ChannelTable({
   device,
   onChange,
+  onDirtyChange,
 }: {
   device: Device;
   onChange: () => Promise<void> | void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
+  const [drafts, setDrafts] = useState(() => draftsFromChannels(device.channels));
+  const [saved, setSaved] = useState(() => draftsFromChannels(device.channels));
   const [points, setPoints] = useState<Record<number, CalPoint>>({});
   const [refs, setRefs] = useState<Record<number, string>>({});
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  async function patchMany(updates: { index: number; body: Record<string, unknown> }[]) {
-    if (updates.length === 0) return;
+  const dirty = isSensorsDirty(drafts, saved);
+
+  useEffect(() => {
+    const next = draftsFromChannels(device.channels);
+    setDrafts(next);
+    setSaved(next);
+    setPoints({});
+    setRefs({});
+    setErr(null);
+  }, [device.id]);
+
+  useEffect(() => {
+    if (dirty || busy) return;
+    const server = draftsFromChannels(device.channels);
+    if (!isSensorsDirty(server, saved)) return;
+    setDrafts(server);
+    setSaved(server);
+  }, [device.channels, dirty, saved, busy]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange]);
+
+  function updateDraft(index: number, patch: Partial<ChannelDraft>) {
+    setDrafts((d) => ({ ...d, [index]: { ...d[index], ...patch } }));
+  }
+
+  async function save() {
+    const invalid = validateDrafts(drafts);
+    if (invalid) {
+      setErr(invalid);
+      return;
+    }
+    const updates = device.channels.flatMap((ch) => {
+      const draft = drafts[ch.index];
+      const keep = saved[ch.index];
+      if (!draft || !keep) return [];
+      const body = channelPatchBody(draft, keep);
+      return body ? [{ index: ch.index, body }] : [];
+    });
+    const next = Object.fromEntries(
+      Object.entries(drafts).map(([k, d]) => [Number(k), normalizeDraft(d)]),
+    );
+    setBusy(true);
     setErr(null);
     try {
       for (const u of updates) {
         await apiSend(`/v1/devices/${encodeURIComponent(device.id)}/channels/${u.index}`, 'PATCH', u.body);
       }
-      await linkSession.pushConfig(device.id);
+      if (updates.length) await linkSession.pushConfig(device.id);
+      setDrafts(next);
+      setSaved(next);
       await onChange();
     } catch (e) {
       setErr(errorMessage(e));
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function patch(index: number, body: Record<string, unknown>) {
-    await patchMany([{ index, body }]);
-  }
-
-  const needsDefault = device.channels.some((ch) => !isDefaultCal(ch));
+  const needsDefault = Object.values(drafts).some((d) => !isDefaultCal(d));
 
   return (
     <div className="section">
@@ -58,10 +117,8 @@ export function ChannelTable({
           className="btn btn-ghost"
           disabled={!needsDefault}
           onClick={() =>
-            void patchMany(
-              device.channels
-                .filter((ch) => !isDefaultCal(ch))
-                .map((ch) => ({ index: ch.index, body: { ...DEFAULT_CAL } })),
+            setDrafts((d) =>
+              Object.fromEntries(Object.entries(d).map(([k, v]) => [Number(k), { ...v, ...DEFAULT_CAL }])),
             )
           }
         >
@@ -88,20 +145,30 @@ export function ChannelTable({
             </tr>
           </thead>
           <tbody>
-            {device.channels.map((ch) => (
-              <ChannelRow
-                key={ch.index}
-                ch={ch}
-                refText={refs[ch.index] ?? ''}
-                stored={points[ch.index]}
-                onRef={(v) => setRefs((s) => ({ ...s, [ch.index]: v }))}
-                onPatch={(body) => void patch(ch.index, body)}
-                onStorePoint={(p) => setPoints((s) => ({ ...s, [ch.index]: p }))}
-                onError={setErr}
-              />
-            ))}
+            {device.channels.map((ch) => {
+              const draft = drafts[ch.index] ?? saved[ch.index];
+              if (!draft) return null;
+              return (
+                <ChannelRow
+                  key={ch.index}
+                  ch={ch}
+                  draft={draft}
+                  refText={refs[ch.index] ?? ''}
+                  stored={points[ch.index]}
+                  onRef={(v) => setRefs((s) => ({ ...s, [ch.index]: v }))}
+                  onDraft={(patch) => updateDraft(ch.index, patch)}
+                  onStorePoint={(p) => setPoints((s) => ({ ...s, [ch.index]: p }))}
+                  onError={setErr}
+                />
+              );
+            })}
           </tbody>
         </table>
+      </div>
+      <div className="row mt">
+        <Button variant="primary" disabled={busy || !dirty} onClick={() => void save()}>
+          {busy ? 'Saving…' : 'Save sensors'}
+        </Button>
       </div>
     </div>
   );
@@ -109,42 +176,36 @@ export function ChannelTable({
 
 function ChannelRow({
   ch,
+  draft,
   refText,
   stored,
   onRef,
-  onPatch,
+  onDraft,
   onStorePoint,
   onError,
 }: {
   ch: Channel;
+  draft: ChannelDraft;
   refText: string;
   stored?: CalPoint;
   onRef: (v: string) => void;
-  onPatch: (body: Record<string, unknown>) => void;
+  onDraft: (patch: Partial<ChannelDraft>) => void;
   onStorePoint: (p: CalPoint) => void;
   onError: (msg: string | null) => void;
 }) {
-  const [name, setName] = useState(ch.name);
-  const [interval, setInterval] = useState(String(ch.intervalSec));
-
-  useEffect(() => {
-    setName(ch.name);
-    setInterval(String(ch.intervalSec));
-  }, [ch.name, ch.intervalSec]);
-
   function applyOffset() {
     if (ch.lastTempC == null) return;
     const refC = Number(refText);
     if (!Number.isFinite(refC)) return;
-    const uncorrected = uncorrectedFromReading(ch.lastTempC, ch.offset);
-    onPatch({ offset: offsetFromReference(refC, uncorrected) });
+    const uncorrected = uncorrectedFromReading(ch.lastTempC, draft.offset);
+    onDraft({ offset: offsetFromReference(refC, uncorrected) });
   }
 
   function storePoint() {
     if (ch.lastTempC == null) return;
     const refC = Number(refText);
     if (!Number.isFinite(refC)) return;
-    const raw = rawFromReading(ch.lastTempC, ch.gain, ch.offset);
+    const raw = rawFromReading(ch.lastTempC, draft.gain, draft.offset);
     onStorePoint({ raw, ref: refC });
   }
 
@@ -152,10 +213,11 @@ function ChannelRow({
     if (!stored || ch.lastTempC == null) return;
     const refC = Number(refText);
     if (!Number.isFinite(refC)) return;
-    const raw = rawFromReading(ch.lastTempC, ch.gain, ch.offset);
+    const raw = rawFromReading(ch.lastTempC, draft.gain, draft.offset);
     try {
       const { gain, offset } = twoPointCal(stored.raw, stored.ref, raw, refC);
-      onPatch({ gain, offset });
+      onDraft({ gain, offset });
+      onError(null);
     } catch (e) {
       onError(errorMessage(e));
     }
@@ -168,17 +230,10 @@ function ChannelRow({
         {ch.index}
       </td>
       <td>
-        <Toggle on={ch.enabled} onClick={() => onPatch({ enabled: !ch.enabled })} />
+        <Toggle on={draft.enabled} onClick={() => onDraft({ enabled: !draft.enabled })} />
       </td>
       <td>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => {
-            if (name.trim() && name !== ch.name) onPatch({ name: name.trim() });
-          }}
-        />
+        <input type="text" value={draft.name} onChange={(e) => onDraft({ name: e.target.value })} />
       </td>
       <td className="narrow">
         <input
@@ -186,23 +241,18 @@ function ChannelRow({
           min={1}
           step={1}
           className="narrow"
-          value={interval}
-          onChange={(e) => setInterval(e.target.value)}
-          onBlur={() => {
-            const n = Math.max(1, Math.floor(Number(interval)));
-            if (Number.isFinite(n) && n !== ch.intervalSec) onPatch({ intervalSec: n });
-            else setInterval(String(ch.intervalSec));
-          }}
+          value={draft.intervalSec}
+          onChange={(e) => onDraft({ intervalSec: e.target.value })}
         />
       </td>
       <td className="num">{formatTemp(ch.lastTempC)}</td>
       <td className="num">{formatOhm(ch.lastROhm)}</td>
       <td className="num">
-        {isDefaultCal(ch) ? (
+        {isDefaultCal(draft) ? (
           <span className="hint">Default</span>
         ) : (
           <>
-            {ch.offset.toFixed(3)} / {ch.gain.toFixed(4)}
+            {draft.offset.toFixed(3)} / {draft.gain.toFixed(4)}
           </>
         )}
         {stored ? (
@@ -235,8 +285,8 @@ function ChannelRow({
           <button
             type="button"
             className="btn btn-ghost"
-            disabled={isDefaultCal(ch)}
-            onClick={() => onPatch({ ...DEFAULT_CAL })}
+            disabled={isDefaultCal(draft)}
+            onClick={() => onDraft({ ...DEFAULT_CAL })}
           >
             Default
           </button>

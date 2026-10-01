@@ -54,6 +54,8 @@ export type LinkState = {
   wifiRssi: number | null;
   wifiInternet: boolean | null;
   wifiConnecting: boolean;
+  rtcUnix: number | null;
+  rtcReceivedAt: number | null;
   error: string | null;
 };
 
@@ -73,6 +75,8 @@ const IDLE: LinkState = {
   wifiRssi: null,
   wifiInternet: null,
   wifiConnecting: false,
+  rtcUnix: null,
+  rtcReceivedAt: null,
   error: null,
 };
 
@@ -683,9 +687,10 @@ export class LinkSession {
     });
   }
 
-  async pushTime(deviceId: string, unixTime: number): Promise<void> {
-    if (!this.matchesDevice(deviceId)) return;
+  async pushTime(deviceId: string, unixTime: number): Promise<boolean> {
+    if (!this.matchesDevice(deviceId)) return false;
     await this.send({ type: 'set_time', unixTime });
+    return true;
   }
 
   async refreshStatus(): Promise<void> {
@@ -754,12 +759,9 @@ export class LinkSession {
     this.stopDrain();
     this.identified = false;
     this.patch({
+      ...IDLE,
       transport,
       open: true,
-      deviceId: null,
-      wifiState: null,
-      claimed: null,
-      forwarding: 0,
       status: 'Waiting for the monitor…',
     });
 
@@ -856,7 +858,14 @@ export class LinkSession {
       if (typeof msg.claimed === 'boolean') {
         this.patch({ claimed: msg.claimed });
       }
-      this.patch(wifiNetFromMsg(msg));
+      const rtcUnix =
+        typeof msg.rtcUnix === 'number' && Number.isFinite(msg.rtcUnix) && msg.rtcUnix > 0
+          ? Math.floor(msg.rtcUnix)
+          : null;
+      this.patch({
+        ...wifiNetFromMsg(msg),
+        ...(rtcUnix != null ? { rtcUnix, rtcReceivedAt: Date.now() } : {}),
+      });
       if (this.identified) {
         this.applyWifiState(msg.wifiState, msg.unackedCount);
       }
@@ -889,6 +898,7 @@ export class LinkSession {
       deviceId,
       claimed: hello.claimed,
       status: 'Connected',
+      error: null,
       ...wifiNetFromMsg(hello),
     });
 

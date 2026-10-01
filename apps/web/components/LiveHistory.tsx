@@ -1,14 +1,21 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_URL, CHANNEL_COUNT, SAMPLE_WARN_COUNT } from '@/lib/config';
 import { apiBlob, apiGet, queryString } from '@/lib/api';
 import { channelHue } from '@/lib/colors';
-import { errorMessage, formatTemp, isoFilenameStamp, toLocalInput } from '@/lib/format';
-import { asRecord, type Device, type Sample, normalizeSamples } from '@/lib/types';
-import { historyRows, mergeSamples, sparkPoints, coerceLiveTs } from '@/lib/samples';
+import {
+  errorMessage,
+  formatTemp,
+  isoFilenameStamp,
+  liveDayDomain,
+  startOfLocalDay,
+  toLocalInput,
+} from '@/lib/format';
+import { asRecord, type Channel, type Device, type Sample, normalizeSamples } from '@/lib/types';
+import { historyRows, liveChartSamples, mergeDaySamples, mergeSamples, coerceLiveTs } from '@/lib/samples';
 import { liveStreamUrl, openLiveStream } from '@/lib/ws';
-import { HistoryChart, Sparkline } from './charts';
+import { HistoryChart } from './charts';
 import { Button, ErrorText } from './ui';
 
 function defaultRange(): { from: string; to: string } {
@@ -23,6 +30,65 @@ function countFrom(raw: unknown): number {
   return typeof n === 'number' ? n : Number(n) || 0;
 }
 
+function enabledChannels(channels: Channel[]): Channel[] {
+  return channels.filter((c) => c.enabled);
+}
+
+function enabledIndexMask(channels: Channel[]): string {
+  return Array.from({ length: CHANNEL_COUNT }, (_, i) => (channels[i]?.enabled ? '1' : '0')).join('');
+}
+
+function selectedEnabledIndexes(selected: boolean[], enabledMask: string): number[] {
+  return selected.map((on, i) => (on && enabledMask[i] === '1' ? i : -1)).filter((i) => i >= 0);
+}
+
+function ChannelPicks({
+  channels,
+  selected,
+  onChange,
+}: {
+  channels: Channel[];
+  selected: boolean[];
+  onChange: (next: boolean[]) => void;
+}) {
+  const indexes = channels.map((c) => c.index);
+  const allOn = indexes.length > 0 && indexes.every((i) => selected[i]);
+  const someOn = indexes.some((i) => selected[i]);
+
+  function setAll(value: boolean) {
+    const next = [...selected];
+    for (const i of indexes) next[i] = value;
+    onChange(next);
+  }
+
+  return (
+    <div className="row channel-picks">
+      <label className="check check-all" title="All sensors">
+        <input
+          type="checkbox"
+          checked={allOn}
+          ref={(el) => {
+            if (el) el.indeterminate = someOn && !allOn;
+          }}
+          onChange={() => setAll(!allOn)}
+        />
+        <span className="check-name">All</span>
+      </label>
+      {channels.map((c) => (
+        <label key={c.index} className="check" title={c.name}>
+          <input
+            type="checkbox"
+            checked={selected[c.index] ?? false}
+            onChange={() => onChange(selected.map((on, i) => (i === c.index ? !on : on)))}
+          />
+          <span className="ch-pip" style={{ background: channelHue(c.index) }} />
+          <span className="check-name">{c.name}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
 export function LiveReadings({
   device,
   liveSamples,
@@ -30,39 +96,75 @@ export function LiveReadings({
   device: Device;
   liveSamples: Sample[];
 }) {
+  const liveRef = useRef(liveSamples);
+  liveRef.current = liveSamples;
+
+  const [selected, setSelected] = useState<boolean[]>(() =>
+    Array.from({ length: CHANNEL_COUNT }, (_, i) => device.channels[i]?.enabled !== false),
+  );
+  const [hist, setHist] = useState<Sample[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const enabledMask = enabledIndexMask(device.channels);
+
+  const enabledIdx = useMemo(
+    () => selectedEnabledIndexes(selected, enabledMask),
+    [selected, enabledMask],
+  );
+
+  const loadDay = useCallback(async () => {
+    setErr(null);
+    try {
+      const from = startOfLocalDay();
+      const data = normalizeSamples(
+        await apiGet(
+          `/v1/samples${queryString({
+            deviceId: device.id,
+            from: from.toISOString(),
+            to: new Date().toISOString(),
+          })}`,
+        ),
+      );
+      setHist(mergeDaySamples(data, liveRef.current));
+    } catch (e) {
+      setErr(errorMessage(e));
+    }
+  }, [device.id]);
+
+  useEffect(() => {
+    setHist([]);
+    void loadDay();
+    let key = startOfLocalDay().toDateString();
+    const t = window.setInterval(() => {
+      const next = startOfLocalDay().toDateString();
+      if (next !== key) {
+        key = next;
+        setHist([]);
+        void loadDay();
+      }
+    }, 30_000);
+    return () => window.clearInterval(t);
+  }, [loadDay]);
+
+  useEffect(() => {
+    if (liveSamples.length === 0) return;
+    setHist((prev) => mergeDaySamples(prev, liveSamples));
+  }, [liveSamples]);
+
+  const rows = historyRows(liveChartSamples(hist), enabledIdx);
+  const names = device.channels.map((c) => {
+    const temp = formatTemp(c.lastTempC);
+    return temp === '—' ? c.name : `${c.name} · ${temp}`;
+  });
+
   return (
-    <div className="table-wrap">
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Sensor</th>
-            <th>Name</th>
-            <th>Temperature</th>
-            <th>Last 2 minutes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {device.channels
-            .filter((c) => c.enabled)
-            .map((c) => (
-              <tr key={c.index}>
-                <td>
-                  <span className="ch-pip" style={{ background: channelHue(c.index) }} />
-                  {c.index}
-                </td>
-                <td>{c.name}</td>
-                <td className="num">{formatTemp(c.lastTempC)}</td>
-                <td>
-                  <Sparkline points={sparkPoints(liveSamples, c.index)} color={channelHue(c.index)} />
-                </td>
-              </tr>
-            ))}
-        </tbody>
-      </table>
-      {liveSamples.length === 0 &&
-      device.channels.filter((c) => c.enabled).every((c) => c.lastTempC == null) ? (
-        <p className="hint">Waiting for readings from this monitor…</p>
-      ) : null}
+    <div className="chart-pane">
+      <ChannelPicks channels={enabledChannels(device.channels)} selected={selected} onChange={setSelected} />
+      <ErrorText>{err}</ErrorText>
+      {enabledIdx.length === 0 ? (
+        <div className="empty">Choose at least one sensor.</div>
+      ) : (
+        <HistoryChart rows={rows} channels={enabledIdx} names={names} xDomain={liveDayDomain(rows[0]?.t)} />
+      )}
     </div>
   );
 }
@@ -76,10 +178,11 @@ export function HistoryReadings({ device }: { device: Device }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [warn, setWarn] = useState<string | null>(null);
+  const enabledMask = enabledIndexMask(device.channels);
 
   const enabledIdx = useMemo(
-    () => selected.map((on, i) => (on ? i : -1)).filter((i) => i >= 0),
-    [selected],
+    () => selectedEnabledIndexes(selected, enabledMask),
+    [selected, enabledMask],
   );
 
   const loadHistory = useCallback(async () => {
@@ -146,7 +249,7 @@ export function HistoryReadings({ device }: { device: Device }) {
   const names = device.channels.map((c) => c.name);
 
   return (
-    <>
+    <div className="chart-pane">
       <div className="toolbar">
         <label className="field">
           <span>From</span>
@@ -163,33 +266,17 @@ export function HistoryReadings({ device }: { device: Device }) {
           Export to Excel
         </Button>
       </div>
-      <div className="row channel-picks">
-        {device.channels.map((c) => (
-          <label key={c.index} className="check" title={c.name}>
-            <input
-              type="checkbox"
-              checked={selected[c.index] ?? false}
-              onChange={() =>
-                setSelected((s) => {
-                  const n = [...s];
-                  n[c.index] = !n[c.index];
-                  return n;
-                })
-              }
-            />
-            <span className="ch-pip" style={{ background: channelHue(c.index) }} />
-            <span className="check-name">{c.name}</span>
-          </label>
-        ))}
-      </div>
+      <ChannelPicks channels={enabledChannels(device.channels)} selected={selected} onChange={setSelected} />
       <ErrorText>{err}</ErrorText>
       {warn ? <p className="warn-text">{warn}</p> : null}
-      {rows.length === 0 ? (
+      {enabledIdx.length === 0 ? (
+        <div className="empty">Choose at least one sensor.</div>
+      ) : rows.length === 0 ? (
         <div className="empty">No readings in this time range.</div>
       ) : (
         <HistoryChart rows={rows} channels={enabledIdx} names={names} />
       )}
-    </>
+    </div>
   );
 }
 

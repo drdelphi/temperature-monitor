@@ -11,44 +11,54 @@ import {
   YAxis,
 } from 'recharts';
 import { channelHue } from '@/lib/colors';
-import { formatTs } from '@/lib/format';
+import { dayAxisTicks, formatDayAxisTick, formatTs, formatTsFull } from '@/lib/format';
 
-export function Sparkline({ points, color }: { points: Array<{ t: string; v: number }>; color: string }) {
-  return (
-    <div className="spark">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={points} margin={{ top: 4, right: 2, bottom: 0, left: 2 }}>
-          <Line
-            type="monotone"
-            dataKey="v"
-            stroke={color}
-            dot={false}
-            isAnimationActive={false}
-            strokeWidth={1.75}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
+function asTimeMs(value: string | number): number {
+  if (typeof value === 'number') return value;
+  const t = Date.parse(value);
+  return Number.isFinite(t) ? t : Number.NaN;
 }
 
 export function HistoryChart({
   rows,
   channels,
   names,
+  className,
+  tickFormatter = formatTs,
+  xDomain,
 }: {
   rows: Array<Record<string, string | number>>;
   channels: number[];
   names: string[];
+  className?: string;
+  tickFormatter?: (value: string) => string;
+  xDomain?: [number, number];
 }) {
+  const data = xDomain
+    ? rows.map((row) => {
+        const t = asTimeMs(row.t);
+        return Number.isFinite(t) ? { ...row, t } : row;
+      })
+    : rows;
+  const ticks = xDomain ? dayAxisTicks(xDomain[0], xDomain[1], data.map((row) => row.t)) : undefined;
+
   return (
-    <div className="chart-box">
+    <div className={['chart-box', className].filter(Boolean).join(' ')}>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
+        <LineChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
           <CartesianGrid stroke="#2c3644" strokeDasharray="3 3" />
           <XAxis
             dataKey="t"
-            tickFormatter={(v) => formatTs(String(v))}
+            type={xDomain ? 'number' : 'category'}
+            domain={xDomain}
+            ticks={ticks}
+            scale={xDomain ? 'linear' : undefined}
+            allowDataOverflow={Boolean(xDomain)}
+            tickFormatter={(v) =>
+              xDomain
+                ? formatDayAxisTick(asTimeMs(v as string | number), xDomain[1])
+                : tickFormatter(String(v))
+            }
             stroke="#8b9bb0"
             tick={{ fill: '#8b9bb0', fontSize: 13 }}
             minTickGap={24}
@@ -61,7 +71,10 @@ export function HistoryChart({
           />
           <Tooltip
             contentStyle={{ background: '#1b232e', border: '1px solid #2c3644', fontSize: 14, borderRadius: 6 }}
-            labelFormatter={(v) => String(v)}
+            labelFormatter={(v) => {
+              const ms = asTimeMs(v as string | number);
+              return Number.isFinite(ms) ? formatTsFull(new Date(ms).toISOString()) : formatTsFull(String(v));
+            }}
             formatter={(value, name) => {
               const n = Number(value);
               return [`${Number.isFinite(n) ? n.toFixed(2) : '—'} °C`, String(name)];

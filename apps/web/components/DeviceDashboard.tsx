@@ -1,12 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiGet, apiSend } from '@/lib/api';
-import { connectionKinds, errorMessage, formatMac, transportLabel } from '@/lib/format';
+import {
+  connectionKinds,
+  errorMessage,
+  formatMac,
+  formatRtcDateTime,
+  liveRtcUnix,
+  maxTs,
+  transportLabel,
+  unixFromIso,
+} from '@/lib/format';
 import { linkSession, useLinkSession } from '@/lib/link-session';
 import { latestByChannel } from '@/lib/samples';
 import { adcToC, adcToOhm } from '@/lib/cal';
+import { requestLeave, setLeaveGuard } from '@/lib/leave-guard';
 import {
   type Alarm,
   type Device,
@@ -19,9 +29,53 @@ import { ChannelTable } from './ChannelTable';
 import { HistoryReadings, LiveReadings, useLiveSamples } from './LiveHistory';
 import { RtcPanel } from './RtcPanel';
 import { WifiPanel } from './WifiPanel';
-import { Button, ErrorText, Field } from './ui';
+import { Button, ConfirmDialog, ErrorText, Field } from './ui';
 
 type Pane = 'live' | 'history' | 'settings';
+
+const RTC_POLL_MS = 50_000;
+
+function discardCopy(sensorsDirty: boolean, alertsDirty: boolean): { title: string; body: string } {
+  if (sensorsDirty && alertsDirty) {
+    return {
+      title: 'Discard unsaved changes?',
+      body: 'You have unsaved sensor and alert changes. Leave without saving?',
+    };
+  }
+  if (alertsDirty) {
+    return {
+      title: 'Discard alert changes?',
+      body: 'You have unsaved alert changes. Leave without saving?',
+    };
+  }
+  return {
+    title: 'Discard sensor changes?',
+    body: 'You have unsaved sensor changes. Leave without saving?',
+  };
+}
+
+function DeviceRtcClock({
+  rtcUnix,
+  rtcReceivedAt,
+}: {
+  rtcUnix: number | null;
+  rtcReceivedAt: number | null;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const unix = liveRtcUnix(rtcUnix, rtcReceivedAt, now);
+  if (unix == null) return null;
+  return (
+    <time className="pane-clock" dateTime={new Date(unix * 1000).toISOString()}>
+      {formatRtcDateTime(unix)}
+    </time>
+  );
+}
 
 export function DeviceDashboard({ deviceId }: { deviceId: string }) {
   const id = decodeURIComponent(deviceId).toUpperCase();
@@ -34,9 +88,17 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
   const [serialOk, setSerialOk] = useState(true);
   const [bleOk, setBleOk] = useState(true);
   const [removing, setRemoving] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [sensorsDirty, setSensorsDirty] = useState(false);
+  const [alertsDirty, setAlertsDirty] = useState(false);
+  const settingsDirty = sensorsDirty || alertsDirty;
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const pendingLeave = useRef<(() => void) | null>(null);
   const link = useLinkSession();
   const live = useLiveSamples(id);
+  const liveRef = useRef(live);
+  liveRef.current = live;
+  const [sampleRtc, setSampleRtc] = useState<{ unix: number; at: number } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -66,6 +128,97 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
     setSerialOk(typeof navigator !== 'undefined' && Boolean(navigator.serial));
     setBleOk(typeof navigator !== 'undefined' && Boolean(navigator.bluetooth));
   }, []);
+
+  useEffect(() => {
+    setSampleRtc(null);
+  }, [id]);
+
+  useEffect(() => {
+    if (pane !== 'live') return;
+    const linked = Boolean(link.open && link.deviceId === id);
+    if (linked) {
+      const pull = () => {
+        void linkSession.refreshStatus().catch(() => undefined);
+      };
+      pull();
+      const t = window.setInterval(pull, RTC_POLL_MS);
+      return () => window.clearInterval(t);
+    }
+    const take = () => {
+      const unix = unixFromIso(maxTs(liveRef.current));
+      if (unix != null) setSampleRtc({ unix, at: Date.now() });
+    };
+    take();
+    const t = window.setInterval(take, RTC_POLL_MS);
+    return () => window.clearInterval(t);
+  }, [pane, link.open, link.deviceId, id]);
+
+  useEffect(() => {
+    if (pane !== 'live' || (link.open && link.deviceId === id) || sampleRtc) return;
+    const unix = unixFromIso(maxTs(live));
+    if (unix != null) setSampleRtc({ unix, at: Date.now() });
+  }, [live, pane, link.open, link.deviceId, id, sampleRtc]);
+
+  useEffect(() => {
+    if (!settingsDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [settingsDirty]);
+
+  useEffect(() => {
+    if (!settingsDirty) {
+      setLeaveGuard(null);
+      return;
+    }
+    setLeaveGuard((proceed) => {
+      pendingLeave.current = proceed;
+      setDiscardOpen(true);
+      return false;
+    });
+    return () => setLeaveGuard(null);
+  }, [settingsDirty]);
+
+  useEffect(() => {
+    if (!settingsDirty) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const a = target.closest('a');
+      if (!(a instanceof HTMLAnchorElement) || a.hasAttribute('download')) return;
+      if (a.target && a.target !== '_self') return;
+      const url = new URL(a.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      requestLeave(() => router.push(`${url.pathname}${url.search}${url.hash}`));
+    };
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, [settingsDirty, router]);
+
+  function requestPane(next: Pane) {
+    if (next === pane) return;
+    requestLeave(() => setPane(next));
+  }
+
+  function confirmDiscard() {
+    const go = pendingLeave.current;
+    pendingLeave.current = null;
+    setDiscardOpen(false);
+    go?.();
+  }
+
+  function cancelDiscard() {
+    pendingLeave.current = null;
+    setDiscardOpen(false);
+  }
 
   async function saveName() {
     const next = name.trim();
@@ -133,17 +286,21 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
   };
 
   const linkedHere = Boolean(link.open && link.deviceId === device.id);
+  const rtcUnix = linkedHere ? link.rtcUnix : sampleRtc?.unix ?? null;
+  const rtcReceivedAt = linkedHere ? link.rtcReceivedAt : sampleRtc?.at ?? null;
   const kinds = connectionKinds({
     lastSeen: device.lastSeen,
+    lastSeenVia: device.lastSeenVia,
     linked: linkedHere,
     transport: linkedHere ? link.transport : null,
     wifiInternet: linkedHere ? link.wifiInternet : null,
     wifiState: linkedHere ? link.wifiState : null,
   });
   const connected = kinds.length > 0;
+  const leaveDialog = discardCopy(sensorsDirty, alertsDirty);
 
   return (
-    <>
+    <div className="device-page">
       <div className="page-head">
         <div>
           <h1>{device.name}</h1>
@@ -173,65 +330,71 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
       </div>
       <ErrorText>{link.error || err}</ErrorText>
       {connected ? (
-        <>
-          <div className="pane-tabs" role="tablist" aria-label="Monitor views">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={pane === 'live'}
-              className={pane === 'live' ? 'active' : undefined}
-              onClick={() => setPane('live')}
-            >
-              Live
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={pane === 'history'}
-              className={pane === 'history' ? 'active' : undefined}
-              onClick={() => setPane('history')}
-            >
-              History
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={pane === 'settings'}
-              className={pane === 'settings' ? 'active' : undefined}
-              onClick={() => setPane('settings')}
-            >
-              Settings
-            </button>
+        <div className="device-pane">
+          <div className="pane-tabs-row">
+            <div className="pane-tabs" role="tablist" aria-label="Monitor views">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pane === 'live'}
+                className={pane === 'live' ? 'active' : undefined}
+                onClick={() => requestPane('live')}
+              >
+                Live
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pane === 'history'}
+                className={pane === 'history' ? 'active' : undefined}
+                onClick={() => requestPane('history')}
+              >
+                History
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pane === 'settings'}
+                className={pane === 'settings' ? 'active' : undefined}
+                onClick={() => requestPane('settings')}
+              >
+                Settings
+              </button>
+            </div>
+            {pane === 'live' ? <DeviceRtcClock rtcUnix={rtcUnix} rtcReceivedAt={rtcReceivedAt} /> : null}
           </div>
           {pane === 'live' ? (
-            <LiveReadings device={merged} liveSamples={liveCal} />
+            <LiveReadings key={device.id} device={merged} liveSamples={liveCal} />
           ) : pane === 'history' ? (
             <HistoryReadings device={merged} />
           ) : (
             <div className="monitor-settings">
-              <section className="section">
-                <h2>Name</h2>
-                <div className="card card-pad form-card stack">
-                  <Field label="Monitor name">
-                    <input
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') void saveName();
-                      }}
-                    />
-                  </Field>
-                  <div className="row">
-                    <Button
-                      variant="primary"
-                      onClick={() => void saveName()}
-                      disabled={!name.trim() || name.trim() === device.name}
-                    >
-                      Save name
-                    </Button>
+              <div className="settings-name-clock">
+                <section className="section">
+                  <h2>Name</h2>
+                  <div className="card card-pad form-card stack">
+                    <Field label="Monitor name">
+                      <input
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void saveName();
+                        }}
+                      />
+                    </Field>
+                    <div className="row">
+                      <Button
+                        variant="primary"
+                        onClick={() => void saveName()}
+                        disabled={!name.trim() || name.trim() === device.name}
+                      >
+                        Save name
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </section>
+                </section>
+                <RtcPanel device={merged} onChange={load} />
+              </div>
               <section className="section">
                 <h2>Wi-Fi</h2>
                 <p className="hint">
@@ -240,12 +403,11 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
                 </p>
                 <WifiPanel deviceId={device.id} />
               </section>
-              <RtcPanel device={merged} onChange={load} />
-              <ChannelTable device={merged} onChange={load} />
-              <AlarmPanel device={merged} alarms={alarms} onChange={load} />
+              <ChannelTable device={merged} onChange={load} onDirtyChange={setSensorsDirty} />
+              <AlarmPanel device={merged} alarms={alarms} onChange={load} onDirtyChange={setAlertsDirty} />
             </div>
           )}
-        </>
+        </div>
       ) : (
         <div className="card card-pad form-card stack">
           <p className="hint">
@@ -260,24 +422,36 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
             <Button disabled={!bleOk} onClick={() => void connect('ble')}>
               Connect Bluetooth
             </Button>
-            {confirmRemove ? (
-              <>
-                <Button variant="danger" disabled={removing} onClick={() => void remove()}>
-                  {removing ? 'Removing…' : 'Remove this monitor'}
-                </Button>
-                <Button variant="ghost" disabled={removing} onClick={() => setConfirmRemove(false)}>
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button variant="danger" onClick={() => setConfirmRemove(true)}>
-                Remove from list
-              </Button>
-            )}
+            <Button variant="danger" onClick={() => setRemoveOpen(true)}>
+              Remove from list
+            </Button>
           </div>
           {!serialOk ? <p className="warn-text">USB and Bluetooth work in Chrome or Edge.</p> : null}
         </div>
       )}
-    </>
+      {removeOpen ? (
+        <ConfirmDialog
+          title="Remove this monitor?"
+          confirmLabel={removing ? 'Removing…' : 'Remove'}
+          busy={removing}
+          onConfirm={() => void remove()}
+          onCancel={() => setRemoveOpen(false)}
+        >
+          <p>
+            Remove {device.name} from the list? You can add it again later over USB or Bluetooth.
+          </p>
+        </ConfirmDialog>
+      ) : null}
+      {discardOpen ? (
+        <ConfirmDialog
+          title={leaveDialog.title}
+          confirmLabel="Discard"
+          onConfirm={confirmDiscard}
+          onCancel={cancelDiscard}
+        >
+          <p>{leaveDialog.body}</p>
+        </ConfirmDialog>
+      ) : null}
+    </div>
   );
 }

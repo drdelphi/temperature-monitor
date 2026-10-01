@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { SampleStreamService } from '../events/sample-stream.service';
 import { AlarmsService } from '../alarms/alarms.service';
-import { ingestAckPayload, snapshotsToRows } from './ingest.logic';
+import { ingestAckPayload, lastSeenViaForAuth, snapshotsToRows } from './ingest.logic';
 import { chunk, normalizeDeviceId } from '../common/util';
 import type { AuthRequest } from '../common/auth-request';
 import type { IngestDto } from './dto/ingest.dto';
@@ -69,7 +69,10 @@ export class IngestService {
 
     await this.prisma.device.update({
       where: { id: deviceId },
-      data: { lastSeen: new Date() },
+      data: {
+        lastSeen: new Date(),
+        lastSeenVia: lastSeenViaForAuth(req.authKind),
+      },
     });
 
     for (const row of rows) {

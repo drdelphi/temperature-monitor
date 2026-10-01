@@ -3,6 +3,7 @@ import { ADC_DISABLED, DEFAULT_CAL, packSnapshot } from '../common/pack';
 import {
   collapseByUniqueKey,
   ingestAckPayload,
+  lastSeenViaForAuth,
   sampleUniqueKey,
   snapshotsToRows,
   type SampleRow,
@@ -109,5 +110,13 @@ describe('ingest uniqueness', () => {
     expect(rows).toHaveLength(8);
     expect(rows[0].ts.toISOString()).toBe('2026-10-01T14:00:00.000Z');
     expect(rows[0].tempC).toBeCloseTo(25, 0);
+  });
+});
+
+describe('lastSeen via', () => {
+  it('marks device-token ingest as Wi-Fi and operator drain as local', () => {
+    expect(lastSeenViaForAuth('device')).toBe('wifi');
+    expect(lastSeenViaForAuth('operator')).toBe('local');
+    expect(lastSeenViaForAuth(undefined)).toBe('local');
   });
 });

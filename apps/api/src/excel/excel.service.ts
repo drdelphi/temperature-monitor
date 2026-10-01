@@ -3,7 +3,21 @@ import type { AlarmEvent, Sample } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
-import { normalizeDeviceId, parseIsoDate, parseOptionalChannels } from '../common/util';
+import { normalizeDeviceId } from '../common/util';
+import { collectBuffer, embedLineChart } from './excel.chart';
+import {
+  EXCEL_DATA_START_ROW,
+  EXCEL_HEADER_ROW,
+  EXCEL_SAMPLES_SHEET,
+  excelChannelColumns,
+  excelChartAnchor,
+  excelDataRow,
+  excelLineChartSource,
+  excelTitleRows,
+  foldSamples,
+  formatExcelTs,
+  type TimestampTemps,
+} from './excel.logic';
 
 const SAMPLE_CAP = 100000;
 const CHUNK = 1000;
@@ -27,10 +41,19 @@ export class ExcelService {
     const from = opts.from ?? new Date(0);
     const to = opts.to ?? new Date();
     const channelNames = new Map(device.channels.map((c) => [c.index, c.name]));
+    const columns = excelChannelColumns(device.channels, opts.channels);
 
     const fromLabel = from.toISOString().replace(/[:.]/g, '-');
     const toLabel = to.toISOString().replace(/[:.]/g, '-');
     const filename = `temp-${deviceId}-${fromLabel}-${toLabel}.xlsx`;
+
+    const where = {
+      deviceId,
+      ts: { gte: from, lte: to },
+      ...(opts.channels && opts.channels.length > 0 ? { channel: { in: opts.channels } } : {}),
+    };
+    const total = await this.prisma.sample.count({ where });
+    const includeChart = columns.length > 0 && total > 0;
 
     res.setHeader(
       'Content-Type',
@@ -38,36 +61,23 @@ export class ExcelService {
     );
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
+    const { stream, done } = collectBuffer();
     const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
-      stream: res,
+      stream,
       useStyles: false,
       useSharedStrings: false,
     });
 
-    const samplesSheet = workbook.addWorksheet('Samples');
-    samplesSheet
-      .addRow([
-        'Time (UTC)',
-        'Time',
-        'Monitor',
-        'Sensor number',
-        'Sensor',
-        'Temperature (°C)',
-        'Resistance (Ω)',
-        'Raw reading',
-      ])
-      .commit();
+    const samplesSheet = workbook.addWorksheet(EXCEL_SAMPLES_SHEET);
+    for (const row of excelTitleRows(device.name, columns)) {
+      samplesSheet.addRow(row).commit();
+    }
 
-    const where = {
-      deviceId,
-      ts: { gte: from, lte: to },
-      ...(opts.channels && opts.channels.length > 0 ? { channel: { in: opts.channels } } : {}),
-    };
-
-    const total = await this.prisma.sample.count({ where });
     let written = 0;
+    let dataRows = 0;
     let lastTs: Date | null = null;
     let lastChannel = -1;
+    let pending: TimestampTemps | null = null;
 
     while (written < SAMPLE_CAP) {
       const batch: Sample[] = await this.prisma.sample.findMany({
@@ -80,36 +90,28 @@ export class ExcelService {
             : {}),
         },
         orderBy: [{ ts: 'asc' }, { channel: 'asc' }],
-        take: CHUNK,
+        take: Math.min(CHUNK, SAMPLE_CAP - written),
       });
       if (batch.length === 0) {
         break;
       }
-      for (const sample of batch) {
-        const iso = sample.ts.toISOString();
-        const local = `${iso} ${sample.ts.toLocaleString('en-GB', { timeZone: 'UTC' })}`;
-        samplesSheet
-          .addRow([
-            iso,
-            local,
-            device.name,
-            sample.channel,
-            channelNames.get(sample.channel) ?? `Sensor ${sample.channel + 1}`,
-            sample.tempC,
-            sample.rOhm,
-            sample.adcRaw,
-          ])
-          .commit();
-        written += 1;
-        lastTs = sample.ts;
-        lastChannel = sample.channel;
-        if (written >= SAMPLE_CAP) {
-          break;
-        }
+      const folded = foldSamples(pending, batch);
+      for (const group of folded.complete) {
+        samplesSheet.addRow(excelDataRow(group.ts, group.temps, columns)).commit();
+        dataRows += 1;
       }
+      pending = folded.pending;
+      written += batch.length;
+      lastTs = batch[batch.length - 1].ts;
+      lastChannel = batch[batch.length - 1].channel;
       if (batch.length < CHUNK) {
         break;
       }
+    }
+
+    if (pending) {
+      samplesSheet.addRow(excelDataRow(pending.ts, pending.temps, columns)).commit();
+      dataRows += 1;
     }
 
     if (total > SAMPLE_CAP) {
@@ -155,7 +157,7 @@ export class ExcelService {
             event.action === 'fired' ? 'Alert' : 'Cleared',
             event.notifySms ? 'Yes' : 'No',
             event.notifyTelegram ? 'Yes' : 'No',
-            event.ts.toISOString(),
+            formatExcelTs(event.ts),
           ])
           .commit();
         lastEventTs = event.ts;
@@ -167,5 +169,24 @@ export class ExcelService {
     }
     await alarmsSheet.commit();
     await workbook.commit();
+
+    let xlsx = await done;
+    if (includeChart && dataRows > 0) {
+      const source = excelLineChartSource({
+        sheetName: EXCEL_SAMPLES_SHEET,
+        headerRow: EXCEL_HEADER_ROW,
+        firstDataRow: EXCEL_DATA_START_ROW,
+        lastDataRow: EXCEL_DATA_START_ROW + dataRows - 1,
+        columns,
+      });
+      xlsx = await embedLineChart(xlsx, {
+        sheetName: EXCEL_SAMPLES_SHEET,
+        title: device.name,
+        catsRef: source.catsRef,
+        series: source.series,
+        anchor: excelChartAnchor(columns.length),
+      });
+    }
+    res.end(xlsx);
   }
 }
