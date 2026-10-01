@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Temperature monitor">
+  <defs>
+    <linearGradient id="tm-mercury" x1="32" y1="58" x2="32" y2="12" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f3a05c" />
+      <stop offset="0.42" stop-color="#e07a3d" />
+      <stop offset="1" stop-color="#3d9ad6" />
+    </linearGradient>
+  </defs>
+
+  <!-- glass body: stem with a rounded top, flaring into the bulb -->
+  <path
+    d="M32 3.2a9.8 9.8 0 0 0-9.8 9.8v24.2a15 15 0 1 0 19.6 0V13A9.8 9.8 0 0 0 32 3.2z"
+    fill="#e8eef4"
+    opacity="0.12"
+  />
+
+  <!-- mercury column + bulb -->
+  <path
+    d="M32 15.5v32"
+    fill="none"
+    stroke="url(#tm-mercury)"
+    stroke-width="8"
+    stroke-linecap="round"
+  />
+  <circle cx="32" cy="48.3" r="9.6" fill="url(#tm-mercury)" />
+
+  <!-- glass outline drawn last so it reads cleanly at small sizes -->
+  <path
+    d="M32 3.2a9.8 9.8 0 0 0-9.8 9.8v24.2a15 15 0 1 0 19.6 0V13A9.8 9.8 0 0 0 32 3.2z"
+    fill="none"
+    stroke="#e8eef4"
+    stroke-width="3.4"
+    stroke-linejoin="round"
+  />
+</svg>

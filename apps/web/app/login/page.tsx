@@ -30,6 +30,7 @@ export default function LoginPage() {
   return (
     <div className="login-wrap">
       <div className="login-card">
+        <img src="/logo-thermometer.svg" alt="" className="login-logo" width={64} height={64} />
         <h1>Temperature monitor</h1>
         <p className="sub">Sign in to continue</p>
         <form onSubmit={(e) => void onSubmit(e)}>

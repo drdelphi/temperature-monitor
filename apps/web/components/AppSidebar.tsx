@@ -67,7 +67,8 @@ export function AppSidebar({ onLogout }: { onLogout: () => void }) {
   return (
     <aside className="sidebar">
       <Link href="/" className="brand">
-        <span className="brand-pip" />
+        {/* alt is empty: the adjacent wordmark already names the app. */}
+        <img src="/logo-thermometer.svg" alt="" className="brand-logo" width={26} height={26} />
         Temperature monitor
       </Link>
 

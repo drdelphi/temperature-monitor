@@ -1,6 +1,8 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 export const API_PREFIX = '/v1';
 export const API_BASE = `${API_URL}${API_PREFIX}`;
+/** Absolute origin of the dashboard; metadata needs it to emit absolute URLs. */
+export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 export const CHANNEL_COUNT = 8;
 export const DRAIN_LIMIT = 32;
 /** Keep pulling new ring samples over USB/BLE while Wi-Fi ingest is down. */

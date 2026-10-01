@@ -166,7 +166,8 @@ input[type='checkbox'] {
 .sidebar .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* Tighter than it looks: the logo SVG is square, so it carries its own side padding. */
+  gap: 4px;
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -183,12 +184,11 @@ input[type='checkbox'] {
   color: var(--accent-hi);
 }
 
-.brand-pip {
-  width: 9px;
-  height: 22px;
-  background: var(--accent);
-  border-radius: 2px;
+.brand-logo {
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
+  display: block;
 }
 
 .sidebar-section {
@@ -876,6 +876,14 @@ table.data select {
   padding: 28px 28px 24px;
   box-shadow: var(--shadow);
   border-radius: var(--radius);
+}
+
+.login-logo {
+  display: block;
+  width: 64px;
+  height: 64px;
+  /* Cancel the SVG's own side padding so the mark lines up with the heading. */
+  margin: 0 0 14px -8px;
 }
 
 .login-card h1 {
