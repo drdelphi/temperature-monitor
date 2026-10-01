@@ -1,9 +1,12 @@
 #include "adc.h"
 
+#include "adc_filter.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "sdkconfig.h"
 #include <string.h>
 
@@ -102,30 +105,56 @@ esp_err_t adc_ntc_init(void)
             calibrated++;
         }
     }
-    ESP_LOGI(TAG, "ADC1 12-bit 11dB avg=%d cal=%d/%d GPIOs %d %d %d %d %d %d %d %d",
-             CONFIG_TEMPMON_ADC_SAMPLES, calibrated, TMP_CHANNEL_COUNT,
+    ESP_LOGI(TAG, "ADC1 12-bit 11dB avg=%d trim=%d%% spread=%dms cal=%d/%d GPIOs %d %d %d %d %d %d %d %d",
+             CONFIG_TEMPMON_ADC_SAMPLES, CONFIG_TEMPMON_ADC_TRIM_PCT,
+             CONFIG_TEMPMON_ADC_SPREAD_MS, calibrated, TMP_CHANNEL_COUNT,
              k_gpios[0], k_gpios[1], k_gpios[2], k_gpios[3],
              k_gpios[4], k_gpios[5], k_gpios[6], k_gpios[7]);
     return ESP_OK;
 }
+
+/* Only the sampler task reads the ADC, so one shared buffer keeps 8 channels
+ * worth of samples off its stack. */
+static uint16_t s_scratch[TMP_CHANNEL_COUNT][CONFIG_TEMPMON_ADC_SAMPLES];
 
 esp_err_t adc_ntc_read_all(uint16_t out[TMP_CHANNEL_COUNT])
 {
     if (!out || !s_adc) {
         return ESP_ERR_INVALID_STATE;
     }
-    for (int i = 0; i < TMP_CHANNEL_COUNT; i++) {
-        uint32_t sum = 0;
-        for (int s = 0; s < CONFIG_TEMPMON_ADC_SAMPLES; s++) {
+
+    const int rounds = CONFIG_TEMPMON_ADC_SAMPLES;
+    const int spread_ticks = (int)pdMS_TO_TICKS(CONFIG_TEMPMON_ADC_SPREAD_MS);
+
+    /* One pass over every channel per round, rather than all of one channel at
+     * once. Back-to-back reads finish inside a single Wi-Fi burst, so they all
+     * carry the same rail sag and the trim has no outlier to reject; spacing
+     * the rounds makes each reading straddle many independent bursts. */
+    for (int s = 0; s < rounds; s++) {
+        for (int i = 0; i < TMP_CHANNEL_COUNT; i++) {
             int raw = 0;
             esp_err_t err = adc_oneshot_read(s_adc, s_ch[i], &raw);
             if (err != ESP_OK) {
                 return err;
             }
-            sum += (uint32_t)raw;
+            if (raw < 0) {
+                raw = 0;
+            }
+            if (raw > TMP_ADC_FULL_SCALE) {
+                raw = TMP_ADC_FULL_SCALE;
+            }
+            s_scratch[i][s] = (uint16_t)raw;
         }
-        int avg = (int)(sum / (uint32_t)CONFIG_TEMPMON_ADC_SAMPLES);
-        out[i] = stored_from_raw(avg, s_cali[i]);
+        int waited = (s * spread_ticks) / rounds;
+        int due = ((s + 1) * spread_ticks) / rounds;
+        if (due > waited) {
+            vTaskDelay(due - waited);
+        }
+    }
+
+    for (int i = 0; i < TMP_CHANNEL_COUNT; i++) {
+        uint16_t mid = tmp_trimmed_mean(s_scratch[i], rounds, CONFIG_TEMPMON_ADC_TRIM_PCT);
+        out[i] = stored_from_raw(mid, s_cali[i]);
     }
     return ESP_OK;
 }

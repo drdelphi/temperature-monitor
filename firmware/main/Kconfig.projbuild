@@ -81,6 +81,27 @@ menu "Temperature monitor"
         default 64
         range 1 256
 
+    config TEMPMON_ADC_TRIM_PCT
+        int "Percent of ADC samples to discard from each end before averaging"
+        default 25
+        range 0 49
+        help
+            Wi-Fi TX bursts dip the 3V3 rail for a few reads. Dropping the
+            highest and lowest 25% leaves 32 of the 64 samples to average,
+            which rejects those bursts and still cancels ordinary noise.
+            0 restores the plain mean.
+
+    config TEMPMON_ADC_SPREAD_MS
+        int "Window to spread one reading's ADC samples over (ms)"
+        default 200
+        range 0 1000
+        help
+            Taken back-to-back, all 64 samples land inside one Wi-Fi burst and
+            share its rail sag, so averaging and trimming cannot remove it.
+            Spreading the rounds over 200 ms makes each reading straddle many
+            independent bursts. Must stay well below the shortest channel
+            interval. 0 restores back-to-back sampling.
+
     config TEMPMON_RING_MAX_RECORDS
         int "LittleFS ring max 17-byte records"
         default 655360

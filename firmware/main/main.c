@@ -23,8 +23,14 @@ static void sampler_task(void *arg)
 {
     (void)arg;
     uint32_t acc = 0;
+    TickType_t next = xTaskGetTickCount();
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        /* Fixed cadence. The spread ADC read and the flash write have to come
+         * out of the second; a plain delay would add them to it and let the
+         * sample rate sag further with every pass. */
+        if (!xTaskDelayUntil(&next, pdMS_TO_TICKS(1000))) {
+            next = xTaskGetTickCount();
+        }
         uint32_t period = nvs_cfg_min_interval_sec();
         if (period < 1) {
             period = 1;
@@ -69,8 +75,9 @@ static void sampler_task(void *arg)
         if (ring_log_append(rec) != ESP_OK) {
             ESP_LOGW(TAG, "ring append failed");
         }
-        /* Flush stored records over Wi-Fi when possible; USB/BLE drain is the fallback. */
-        http_ingest_kick();
+        /* No ingest kick here. Posting every sample keeps the radio transmitting
+         * through almost every ADC read; the ingest task's own period batches
+         * the ring instead. USB/BLE drain is still the offline fallback. */
     }
 }
 

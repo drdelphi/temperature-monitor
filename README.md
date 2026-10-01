@@ -70,3 +70,5 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 - Channel interval 10 s (minimum 1 s). Ring period is `min(enabled intervals)`.
 - 17 bytes/snapshot × 86400 = **1.47 MB/day** at 1 Hz; N16R8 LittleFS holds several days.
 - Disabled channels stored as ADC `0xFFE`. Server computes °C at ingest from the cal then in force.
+- Each stored reading is the mean of the middle 50 % of 64 ADC samples (`TEMPMON_ADC_TRIM_PCT`), so a Wi-Fi TX burst that dips the rail for a few reads is discarded rather than averaged in.
+- Wi-Fi ingest posts the ring on its own 5 s period (`TEMPMON_INGEST_PERIOD_MS`), not once per sample, to keep the radio quiet between readings.

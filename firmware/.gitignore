@@ -5,3 +5,4 @@ managed_components/
 dependencies.lock
 .cache/
 host_test/test_pack
+host_test/test_adc_filter

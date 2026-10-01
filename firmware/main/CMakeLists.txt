@@ -4,6 +4,7 @@ idf_component_register(
         "pack.c"
         "util.c"
         "adc.c"
+        "adc_filter.c"
         "rtc_ds3231.c"
         "ring_log.c"
         "nvs_cfg.c"
