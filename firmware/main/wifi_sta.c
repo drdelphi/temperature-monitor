@@ -20,6 +20,7 @@ static const char *TAG = "wifi";
 #define BIT_GOT_IP BIT0
 #define BIT_FAIL BIT1
 #define BIT_STA_STARTED BIT2
+#define BIT_APPLY BIT3
 
 static EventGroupHandle_t s_events;
 static esp_netif_t *s_netif;
@@ -29,6 +30,8 @@ static volatile bool s_had_ip;
 static volatile bool s_hold_connect;
 static volatile bool s_internet;
 static volatile bool s_probe_needed;
+/* Bumped by wifi_sta_apply() so an in-flight join gives up on the old credentials. */
+static volatile uint32_t s_apply_gen;
 static char s_ip[16];
 
 static const char *auth_str(wifi_auth_mode_t mode)
@@ -51,6 +54,35 @@ static const char *auth_str(wifi_auth_mode_t mode)
     default:
         return "other";
     }
+}
+
+static void clear_link_state(void)
+{
+    s_up = false;
+    s_had_ip = false;
+    s_connecting = false;
+    s_internet = false;
+    s_probe_needed = false;
+    s_ip[0] = 0;
+    led_rgb_set(LED_FLAG_WIFI, false);
+}
+
+/* The driver keeps the last credentials even after the saved network is removed,
+ * so wipe them too, or a stray reconnect would rejoin the old AP. */
+static void forget_driver_creds(void)
+{
+    wifi_config_t wcfg = {0};
+    wcfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wcfg);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "clear sta config %s", esp_err_to_name(err));
+    }
+}
+
+static bool wait_for_apply(uint32_t ms)
+{
+    EventBits_t bits = xEventGroupWaitBits(s_events, BIT_APPLY, pdTRUE, pdFALSE, pdMS_TO_TICKS(ms));
+    return (bits & BIT_APPLY) != 0;
 }
 
 bool wifi_sta_is_up(void)
@@ -148,7 +180,7 @@ void wifi_sta_copy_info(tmp_wifi_info_t *out)
     }
     memset(out, 0, sizeof(*out));
     out->connecting = s_connecting;
-    out->internet = s_internet || http_ingest_last_ok();
+    out->internet = s_up && (s_internet || http_ingest_last_ok());
     out->rssi = wifi_sta_rssi();
 
     tmp_cfg_t cfg;
@@ -192,6 +224,10 @@ esp_err_t wifi_sta_scan(wifi_sta_ap_t *out, uint16_t *count)
     }
     *count = 0;
     s_hold_connect = true;
+    /* Scanning fails mid-association, so let a running join bail out first. */
+    for (int i = 0; i < 20 && s_connecting; i++) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
     wifi_scan_config_t scan = {
         .ssid = NULL,
         .bssid = NULL,
@@ -242,7 +278,12 @@ esp_err_t wifi_sta_scan(wifi_sta_ap_t *out, uint16_t *count)
     return ESP_OK;
 }
 
-static esp_err_t try_connect(const tmp_cfg_t *cfg)
+static bool join_aborted(uint32_t gen)
+{
+    return s_hold_connect || s_apply_gen != gen;
+}
+
+static esp_err_t try_connect(const tmp_cfg_t *cfg, uint32_t gen)
 {
     if (!cfg->wifi_ssid[0]) {
         s_connecting = false;
@@ -262,7 +303,7 @@ static esp_err_t try_connect(const tmp_cfg_t *cfg)
     s_connecting = true;
     ESP_LOGI(TAG, "connecting to '%s'", cfg->wifi_ssid);
 
-    xEventGroupClearBits(s_events, BIT_GOT_IP | BIT_FAIL);
+    xEventGroupClearBits(s_events, BIT_GOT_IP | BIT_FAIL | BIT_APPLY);
     esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wcfg);
     if (err == ESP_OK) {
         err = esp_wifi_connect();
@@ -273,7 +314,13 @@ static esp_err_t try_connect(const tmp_cfg_t *cfg)
     }
 
     const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(CONFIG_TEMPMON_WIFI_CONNECT_TIMEOUT_MS);
+    esp_err_t result = ESP_ERR_TIMEOUT;
     for (;;) {
+        if (join_aborted(gen)) {
+            ESP_LOGI(TAG, "join to '%s' cancelled", cfg->wifi_ssid);
+            result = ESP_ERR_INVALID_STATE;
+            break;
+        }
         TickType_t now = xTaskGetTickCount();
         if ((TickType_t)(deadline - now) > (TickType_t)pdMS_TO_TICKS(CONFIG_TEMPMON_WIFI_CONNECT_TIMEOUT_MS)) {
             break;
@@ -285,7 +332,13 @@ static esp_err_t try_connect(const tmp_cfg_t *cfg)
         if (slice == 0) {
             break;
         }
-        EventBits_t bits = xEventGroupWaitBits(s_events, BIT_GOT_IP | BIT_FAIL, pdTRUE, pdFALSE, slice);
+        EventBits_t bits =
+            xEventGroupWaitBits(s_events, BIT_GOT_IP | BIT_FAIL | BIT_APPLY, pdTRUE, pdFALSE, slice);
+        if (join_aborted(gen)) {
+            ESP_LOGI(TAG, "join to '%s' cancelled", cfg->wifi_ssid);
+            result = ESP_ERR_INVALID_STATE;
+            break;
+        }
         if (bits & BIT_GOT_IP) {
             return ESP_OK;
         }
@@ -298,7 +351,7 @@ static esp_err_t try_connect(const tmp_cfg_t *cfg)
     }
     (void)esp_wifi_disconnect();
     s_connecting = false;
-    return ESP_ERR_TIMEOUT;
+    return result;
 }
 
 static void wifi_task(void *arg)
@@ -309,11 +362,17 @@ static void wifi_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(200));
             continue;
         }
+        /* Read the generation first: an apply racing the config read is then
+         * seen as a mismatch and retried, instead of being lost. */
+        uint32_t gen = s_apply_gen;
         tmp_cfg_t cfg;
         nvs_cfg_get(&cfg);
         if (!cfg.wifi_ssid[0]) {
-            s_connecting = false;
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            if (s_up || s_had_ip || s_connecting) {
+                (void)esp_wifi_disconnect();
+                clear_link_state();
+            }
+            wait_for_apply(1000);
             continue;
         }
         if (s_up) {
@@ -324,9 +383,13 @@ static void wifi_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
-        if (try_connect(&cfg) != ESP_OK) {
+        esp_err_t err = try_connect(&cfg, gen);
+        if (err == ESP_ERR_INVALID_STATE) {
+            continue; /* Cancelled: re-read the config and act on it now. */
+        }
+        if (err != ESP_OK) {
             ESP_LOGW(TAG, "join failed, retry in %d ms", CONFIG_TEMPMON_WIFI_RETRY_MS);
-            vTaskDelay(pdMS_TO_TICKS(CONFIG_TEMPMON_WIFI_RETRY_MS));
+            wait_for_apply(CONFIG_TEMPMON_WIFI_RETRY_MS);
         }
     }
 }
@@ -335,16 +398,13 @@ esp_err_t wifi_sta_apply(void)
 {
     tmp_cfg_t cfg;
     nvs_cfg_get(&cfg);
-    if (s_up || s_connecting) {
-        (void)esp_wifi_disconnect();
-        s_up = false;
-        s_had_ip = false;
-        s_connecting = false;
-        led_rgb_set(LED_FLAG_WIFI, false);
-    }
+    s_apply_gen++;
+    (void)esp_wifi_disconnect();
+    clear_link_state();
     if (!cfg.wifi_ssid[0]) {
-        return ESP_OK;
+        forget_driver_creds();
     }
+    xEventGroupSetBits(s_events, BIT_APPLY);
     return ESP_OK;
 }
 

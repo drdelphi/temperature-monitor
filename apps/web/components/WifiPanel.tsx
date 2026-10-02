@@ -6,6 +6,9 @@ import { linkSession, useLinkSession } from '@/lib/link-session';
 import { type WifiNetwork, wifiAuthNeedsPassword } from '@/lib/types';
 import { Button, ErrorText, Field } from './ui';
 
+/** Covers the firmware join timeout (15s) plus a little slack. */
+const JOIN_WAIT_TRIES = 20;
+
 async function connectUsb() {
   await linkSession.connectUsb();
 }
@@ -105,14 +108,21 @@ export function WifiPanel({ deviceId }: { deviceId?: string }) {
     try {
       await linkSession.setWifi(name, needsPass ? password : '');
       setNote(`Connecting to ${name}…`);
-      for (let i = 0; i < 8; i++) {
+      let joined = false;
+      for (let i = 0; i < JOIN_WAIT_TRIES; i++) {
         await new Promise((r) => setTimeout(r, 1000));
         await linkSession.refreshStatus();
         const st = linkSession.getState();
-        if (st.wifiIp) {
-          setNote(`Connected to ${name}`);
+        if (st.wifiIp && st.wifiSsid === name) {
+          joined = true;
           break;
         }
+      }
+      if (joined) {
+        setNote(`Connected to ${name}`);
+      } else {
+        setNote(null);
+        setErr(`Could not join ${name}. Check the password, and that the network is in range.`);
       }
     } catch (e) {
       setErr(errorMessage(e));
@@ -128,8 +138,15 @@ export function WifiPanel({ deviceId }: { deviceId?: string }) {
     try {
       await linkSession.setWifi('', '');
       setPassword('');
-      setNote('Saved Wi-Fi network removed from this monitor.');
+      setSsid('');
+      setPick('');
+      setManual(false);
       await linkSession.refreshStatus();
+      if (linkSession.getState().wifiSsid) {
+        setErr('The monitor still reports a saved network. Try again.');
+      } else {
+        setNote('Saved Wi-Fi network removed. Pick another network to join it.');
+      }
     } catch (e) {
       setErr(errorMessage(e));
     } finally {
