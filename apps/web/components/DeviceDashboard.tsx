@@ -62,14 +62,15 @@ function DeviceRtcClock({
   rtcUnix: number | null;
   rtcReceivedAt: number | null;
 }) {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
+    setNow(Date.now());
     const t = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(t);
   }, []);
 
-  const unix = liveRtcUnix(rtcUnix, rtcReceivedAt, now);
+  const unix = now == null ? null : liveRtcUnix(rtcUnix, rtcReceivedAt, now);
   if (unix == null) return null;
   return (
     <time className="pane-clock" dateTime={new Date(unix * 1000).toISOString()}>

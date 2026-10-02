@@ -761,6 +761,22 @@ table.data select {
   align-items: flex-end;
 }
 
+.range-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  min-width: 0;
+}
+
+.range-fields .field {
+  min-width: 0;
+}
+
+.range-fields input {
+  min-width: 0;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -1041,7 +1057,8 @@ table.data select {
     left: 0;
     top: 0;
     width: min(280px, 86vw);
-    padding: calc(16px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom))
+    /* Room for the fixed Menu/Close control (12px offset + 44px height + 12px gap). */
+    padding: calc(68px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom))
       calc(14px + env(safe-area-inset-left));
     transform: translateX(-100%);
     /* Hidden, not just off-screen: a closed drawer must not catch tab focus. */
@@ -1115,6 +1132,63 @@ table.data select {
   .toolbar > .field,
   .row > .field {
     flex: 1 1 100%;
+  }
+
+  .toolbar {
+    max-width: 100%;
+    min-width: 0;
+    padding-left: 10px;
+    padding-right: 10px;
+    overflow: hidden;
+  }
+
+  .chart-pane {
+    min-width: 0;
+  }
+
+  .range-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px 16px;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .range-fields .field {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .range-fields input {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding-left: 6px;
+    padding-right: 22px;
+    overflow: hidden;
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+  }
+
+  .range-fields input::-webkit-datetime-edit,
+  .range-fields input::-webkit-datetime-edit-fields-wrapper {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    flex: 1 1 auto;
+  }
+
+  .range-fields input::-webkit-calendar-picker-indicator {
+    position: absolute;
+    right: 4px;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 0;
   }
 
   .pane-tabs {

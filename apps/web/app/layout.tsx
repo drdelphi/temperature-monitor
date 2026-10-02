@@ -57,8 +57,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>
+    /* Next writes color-scheme (from viewport) onto <html> after render; iOS Safari
+       may also add attributes. Without this, hydrate reports a mismatch on <html>. */
+    <html lang="en" suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <AppShell>{children}</AppShell>
       </body>
     </html>

@@ -196,7 +196,9 @@ export function LiveReadings({
 }
 
 export function HistoryReadings({ device }: { device: Device }) {
-  const [range, setRange] = useState(defaultRange);
+  /* Empty until mount so SSR and the first client paint share the same markup.
+     defaultRange() uses Date.now() and would mismatch hydrate. */
+  const [range, setRange] = useState({ from: '', to: '' });
   const [selected, setSelected] = useState<boolean[]>(() =>
     Array.from({ length: CHANNEL_COUNT }, (_, i) => device.channels[i]?.enabled !== false),
   );
@@ -211,7 +213,12 @@ export function HistoryReadings({ device }: { device: Device }) {
     [selected, enabledMask],
   );
 
+  useEffect(() => {
+    setRange(defaultRange());
+  }, []);
+
   const loadHistory = useCallback(async () => {
+    if (!range.from || !range.to) return;
     setBusy(true);
     setErr(null);
     try {
@@ -280,14 +287,28 @@ export function HistoryReadings({ device }: { device: Device }) {
   return (
     <div className="chart-pane">
       <div className="toolbar">
-        <label className="field">
-          <span>From</span>
-          <input type="datetime-local" step={1} value={range.from} onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))} />
-        </label>
-        <label className="field">
-          <span>To</span>
-          <input type="datetime-local" step={1} value={range.to} onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))} />
-        </label>
+        <div className="range-fields">
+          <label className="field">
+            <span>From</span>
+            <input
+              type="datetime-local"
+              step={1}
+              value={range.from}
+              suppressHydrationWarning
+              onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
+            />
+          </label>
+          <label className="field">
+            <span>To</span>
+            <input
+              type="datetime-local"
+              step={1}
+              value={range.to}
+              suppressHydrationWarning
+              onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
+            />
+          </label>
+        </div>
         <Button onClick={() => void loadHistory()} disabled={busy}>
           Show
         </Button>

@@ -11,7 +11,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const isLogin = pathname === '/login';
-  const [ready, setReady] = useState(isLogin);
+  /* Always start not-ready so SSR and the first client paint share the same busy
+     markup. usePathname() can disagree across that boundary on a phone. */
+  const [ready, setReady] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
@@ -71,12 +73,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }
 
-  if (isLogin) {
-    return <>{children}</>;
-  }
-
   if (!ready) {
     return <div className="busy">Checking your sign-in…</div>;
+  }
+
+  if (isLogin) {
+    return <>{children}</>;
   }
 
   return (

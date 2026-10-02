@@ -8,9 +8,13 @@ import type { Device } from '@/lib/types';
 import { Button, Field } from './ui';
 
 export function RtcPanel({ device, onChange }: { device: Device; onChange: () => Promise<void> | void }) {
-  const [manual, setManual] = useState(() => toLocalInput(new Date()));
+  const [manual, setManual] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setManual(toLocalInput(new Date()));
+  }, []);
 
   useEffect(() => {
     if (device.pendingUnixTime != null) {
@@ -59,7 +63,13 @@ export function RtcPanel({ device, onChange }: { device: Device; onChange: () =>
       <div className="card card-pad form-card stack">
         <div className="row">
           <Field label="Date and time">
-            <input type="datetime-local" step={1} value={manual} onChange={(e) => setManual(e.target.value)} />
+            <input
+              type="datetime-local"
+              step={1}
+              value={manual}
+              suppressHydrationWarning
+              onChange={(e) => setManual(e.target.value)}
+            />
           </Field>
           <Button
             variant="primary"
