@@ -322,10 +322,10 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
         </div>
       </div>
       <ErrorText>{link.error || err}</ErrorText>
-      {connected ? (
-        <div className="device-pane">
-          <div className="pane-tabs-row">
-            <div className="pane-tabs" role="tablist" aria-label="Monitor views">
+      <div className="device-pane">
+        <div className="pane-tabs-row">
+          <div className="pane-tabs" role="tablist" aria-label="Monitor views">
+            {connected ? (
               <button
                 type="button"
                 role="tab"
@@ -335,15 +335,17 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
               >
                 Live
               </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={pane === 'history'}
-                className={pane === 'history' ? 'active' : undefined}
-                onClick={() => requestPane('history')}
-              >
-                History
-              </button>
+            ) : null}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={pane === 'history' || !connected}
+              className={pane === 'history' || !connected ? 'active' : undefined}
+              onClick={() => requestPane('history')}
+            >
+              History
+            </button>
+            {connected ? (
               <button
                 type="button"
                 role="tab"
@@ -353,59 +355,60 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
               >
                 Settings
               </button>
-            </div>
-            {pane === 'live' ? <DeviceRtcClock rtcUnix={rtcUnix} rtcReceivedAt={rtcReceivedAt} /> : null}
+            ) : null}
           </div>
-          {pane === 'live' ? (
-            <LiveReadings key={device.id} device={merged} liveSamples={liveCal} />
-          ) : pane === 'history' ? (
-            <HistoryReadings device={merged} />
-          ) : (
-            <div className="monitor-settings">
-              <div className="settings-name-clock">
-                <section className="section">
-                  <h2>Name</h2>
-                  <div className="card card-pad form-card stack">
-                    <Field label="Monitor name">
-                      <input
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void saveName();
-                        }}
-                      />
-                    </Field>
-                    <div className="row">
-                      <Button
-                        variant="primary"
-                        onClick={() => void saveName()}
-                        disabled={!name.trim() || name.trim() === device.name}
-                      >
-                        Save name
-                      </Button>
-                    </div>
-                  </div>
-                </section>
-                <RtcPanel device={merged} onChange={load} />
-              </div>
-              <section className="section">
-                <h2>Connection</h2>
-                <p className="hint">
-                  Scan and join a Wi-Fi network from this monitor. Stay connected over USB or Bluetooth while
-                  you set it up.
-                </p>
-                <WifiPanel deviceId={device.id} />
-              </section>
-              <ChannelTable device={merged} onChange={load} onDirtyChange={setSensorsDirty} />
-              <AlarmPanel device={merged} alarms={alarms} onChange={load} onDirtyChange={setAlertsDirty} />
-            </div>
-          )}
+          {pane === 'live' && connected ? <DeviceRtcClock rtcUnix={rtcUnix} rtcReceivedAt={rtcReceivedAt} /> : null}
         </div>
-      ) : (
+        {pane === 'live' && connected ? (
+          <LiveReadings key={device.id} device={merged} liveSamples={liveCal} />
+        ) : pane === 'settings' && connected ? (
+          <div className="monitor-settings">
+            <div className="settings-name-clock">
+              <section className="section">
+                <h2>Name</h2>
+                <div className="card card-pad form-card stack">
+                  <Field label="Monitor name">
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void saveName();
+                      }}
+                    />
+                  </Field>
+                  <div className="row">
+                    <Button
+                      variant="primary"
+                      onClick={() => void saveName()}
+                      disabled={!name.trim() || name.trim() === device.name}
+                    >
+                      Save name
+                    </Button>
+                  </div>
+                </div>
+              </section>
+              <RtcPanel device={merged} onChange={load} />
+            </div>
+            <section className="section">
+              <h2>Connection</h2>
+              <p className="hint">
+                Scan and join a Wi-Fi network from this monitor. Stay connected over USB or Bluetooth while
+                you set it up.
+              </p>
+              <WifiPanel deviceId={device.id} />
+            </section>
+            <ChannelTable device={merged} onChange={load} onDirtyChange={setSensorsDirty} />
+            <AlarmPanel device={merged} alarms={alarms} onChange={load} onDirtyChange={setAlertsDirty} />
+          </div>
+        ) : (
+          <HistoryReadings device={merged} />
+        )}
+      </div>
+      {!connected ? (
         <div className="card card-pad form-card stack">
           <p className="hint">
-            Connect this monitor over USB or Bluetooth to see readings and settings, or remove it from the
-            list.
+            Connect this monitor over USB or Bluetooth to see live readings and push settings, or remove it
+            from the list.
           </p>
           <ErrorText>{link.error || err}</ErrorText>
           <div className="row">
@@ -427,7 +430,7 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
             </p>
           ) : null}
         </div>
-      )}
+      ) : null}
       {removeOpen ? (
         <ConfirmDialog
           title="Remove this monitor?"
