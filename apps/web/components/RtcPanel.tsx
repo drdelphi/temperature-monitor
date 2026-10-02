@@ -61,16 +61,16 @@ export function RtcPanel({ device, onChange }: { device: Device; onChange: () =>
     <div className="section">
       <h2>Clock</h2>
       <div className="card card-pad form-card stack">
-        <div className="row">
-          <Field label="Date and time">
-            <input
-              type="datetime-local"
-              step={1}
-              value={manual}
-              suppressHydrationWarning
-              onChange={(e) => setManual(e.target.value)}
-            />
-          </Field>
+        <Field label="Date and time">
+          <input
+            type="datetime-local"
+            step={1}
+            value={manual}
+            suppressHydrationWarning
+            onChange={(e) => setManual(e.target.value)}
+          />
+        </Field>
+        <div className="row clock-actions">
           <Button
             variant="primary"
             disabled={busy}
@@ -78,8 +78,6 @@ export function RtcPanel({ device, onChange }: { device: Device; onChange: () =>
           >
             Use this computer’s time
           </Button>
-        </div>
-        <div className="row">
           <Button disabled={busy || !manual} onClick={() => void apply(localInputToUnix(manual))}>
             Set clock
           </Button>

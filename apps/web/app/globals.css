@@ -764,6 +764,12 @@ table.data select {
   align-items: center;
 }
 
+.clock-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
 .toolbar:has(.field),
 .row:has(.field) {
   align-items: flex-end;
@@ -1272,8 +1278,19 @@ table.data select {
 
   table.data td.narrow,
   table.data .narrow {
-    width: auto;
-    max-width: none;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  table.data.alerts-table td.cell-limit,
+  table.data.alerts-table td.cell-hysteresis {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  table.data.alerts-table td.cell-wait {
+    grid-column: 1 / -1;
   }
 }
 
@@ -1356,6 +1373,13 @@ table.data select {
 
   .monitor-settings .row {
     gap: 8px;
+  }
+
+  .monitor-settings .clock-actions .btn {
+    flex: 1 1 0;
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
   }
 
   .monitor-settings .mt {
@@ -1455,8 +1479,9 @@ table.data select {
 
   .monitor-settings table.data td.narrow,
   .monitor-settings table.data .narrow {
-    width: auto;
-    max-width: none;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .monitor-settings .curve-cell {
@@ -1537,5 +1562,27 @@ table.data select {
 
   .monitor-settings table.data.alerts-table td.cell-when {
     align-self: center;
+  }
+
+  .monitor-settings table.data.alerts-table td.cell-limit,
+  .monitor-settings table.data.alerts-table td.cell-hysteresis {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .monitor-settings table.data.alerts-table td.cell-limit input,
+  .monitor-settings table.data.alerts-table td.cell-hysteresis input,
+  .monitor-settings table.data.alerts-table td.cell-wait input {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .monitor-settings table.data.alerts-table td.cell-wait {
+    grid-column: 1 / -1;
+  }
+
+  .monitor-settings table.data.alerts-table td.cell-notify {
+    min-width: 0;
   }
 }

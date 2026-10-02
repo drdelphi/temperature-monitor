@@ -137,7 +137,7 @@ export function AlarmPanel({
                         title="Alert on"
                       />
                     </td>
-                    <td data-label="Limit °C">
+                    <td data-label="Limit °C" className="cell-limit">
                       <input
                         type="number"
                         step="0.1"
@@ -146,7 +146,7 @@ export function AlarmPanel({
                         onChange={(e) => set(ch.index, kind, { thresholdC: e.target.value })}
                       />
                     </td>
-                    <td data-label="Reset gap °C">
+                    <td data-label="Reset gap °C" className="cell-hysteresis">
                       <input
                         type="number"
                         step="0.1"
@@ -155,7 +155,7 @@ export function AlarmPanel({
                         onChange={(e) => set(ch.index, kind, { hysteresis: e.target.value })}
                       />
                     </td>
-                    <td data-label="Wait (seconds)">
+                    <td data-label="Wait (seconds)" className="cell-wide cell-wait">
                       <input
                         type="number"
                         min={0}
@@ -165,14 +165,14 @@ export function AlarmPanel({
                         onChange={(e) => set(ch.index, kind, { cooldownSec: e.target.value })}
                       />
                     </td>
-                    <td data-label="Telegram">
+                    <td data-label="Telegram" className="cell-notify">
                       <input
                         type="checkbox"
                         checked={d.notifyTelegram}
                         onChange={(e) => set(ch.index, kind, { notifyTelegram: e.target.checked })}
                       />
                     </td>
-                    <td data-label="SMS">
+                    <td data-label="SMS" className="cell-notify">
                       <input
                         type="checkbox"
                         checked={d.notifySms}
