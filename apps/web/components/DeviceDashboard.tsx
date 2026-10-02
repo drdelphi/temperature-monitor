@@ -389,10 +389,10 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
                 <RtcPanel device={merged} onChange={load} />
               </div>
               <section className="section">
-                <h2>Wi-Fi</h2>
+                <h2>Connection</h2>
                 <p className="hint">
-                  Scan and join a network from this monitor. Stay connected over USB or Bluetooth while you set
-                  it up.
+                  Scan and join a Wi-Fi network from this monitor. Stay connected over USB or Bluetooth while
+                  you set it up.
                 </p>
                 <WifiPanel deviceId={device.id} />
               </section>
