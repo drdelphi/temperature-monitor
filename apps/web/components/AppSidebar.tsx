@@ -88,6 +88,15 @@ export function AppSidebar({ onLogout }: { onLogout: () => void }) {
             Add Bluetooth
           </Button>
         </div>
+        {!serialOk || !bleOk ? (
+          <p className="warn-text">
+            {serialOk
+              ? 'Bluetooth needs Chrome or Edge.'
+              : bleOk
+                ? 'USB needs Chrome or Edge on a computer. From a phone, connect over Bluetooth.'
+                : 'USB needs a computer. Bluetooth needs Chrome on Android — iPhone browsers cannot connect to the monitor.'}
+          </p>
+        ) : null}
         <ErrorText>{err}</ErrorText>
       </div>
 

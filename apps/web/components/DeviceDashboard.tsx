@@ -423,11 +423,13 @@ export function DeviceDashboard({ deviceId }: { deviceId: string }) {
               Remove from list
             </Button>
           </div>
-          {!serialOk ? (
+          {!serialOk || !bleOk ? (
             <p className="warn-text">
-              {bleOk
-                ? 'USB needs Chrome or Edge on a computer. From a phone, connect over Bluetooth.'
-                : 'USB and Bluetooth need Chrome or Edge on a computer.'}
+              {serialOk
+                ? 'Bluetooth needs Chrome or Edge.'
+                : bleOk
+                  ? 'USB needs Chrome or Edge on a computer. From a phone, connect over Bluetooth.'
+                  : 'USB needs a computer. Bluetooth needs Chrome on Android — iPhone browsers cannot connect to the monitor.'}
             </p>
           ) : null}
         </div>

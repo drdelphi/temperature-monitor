@@ -147,7 +147,7 @@ export function ChannelTable({
       </p>
       {err ? <div className="err">{err}</div> : null}
       <div className="table-wrap">
-        <table className="data">
+        <table className="data sensors-table">
           <thead>
             <tr>
               <th />
@@ -265,15 +265,21 @@ function ChannelRow({
   return (
     <tr>
       {/* data-label feeds the one-card-per-row layout phones get; see globals.css. */}
-      <td data-label="Sensor">
+      <td data-label="Sensor" className="cell-id">
         <span className="ch-pip" style={{ background: channelHue(ch.index) }} />
         {ch.index}
       </td>
-      <td data-label="On">
-        <Toggle on={draft.enabled} onClick={() => onDraft({ enabled: !draft.enabled })} />
+      <td data-label="On" className="cell-on">
+        <Toggle on={draft.enabled} onClick={() => onDraft({ enabled: !draft.enabled })} title="Sensor on" />
       </td>
-      <td data-label="Name" className="cell-wide">
-        <input type="text" value={draft.name} onChange={(e) => onDraft({ name: e.target.value })} />
+      <td data-label="Name" className="cell-wide cell-name">
+        <span className="ch-pip" style={{ background: channelHue(ch.index) }} />
+        <input
+          type="text"
+          className="channel-name-input"
+          value={draft.name}
+          onChange={(e) => onDraft({ name: e.target.value })}
+        />
       </td>
       <td data-label="Curve" className="cell-wide">
         <div className="curve-cell">
@@ -336,7 +342,7 @@ function ChannelRow({
           disabled={!active}
         />
       </td>
-      <td data-label="Calibrate" className="cell-wide">
+      <td data-label="Calibrate" className="cell-wide cell-cal">
         <div className="row">
           <button type="button" className="btn" onClick={applyOffset} disabled={!canCalibrate}>
             Match

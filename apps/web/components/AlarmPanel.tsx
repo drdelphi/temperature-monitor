@@ -99,7 +99,7 @@ export function AlarmPanel({
       </p>
       <ErrorText>{err}</ErrorText>
       <div className="table-wrap mt">
-        <table className="data">
+        <table className="data alerts-table">
           <thead>
             <tr>
               <th>Sensor</th>
@@ -121,17 +121,21 @@ export function AlarmPanel({
                 return (
                   <tr key={alarmKey(ch.index, kind)}>
                     {/* data-label feeds the one-card-per-row layout phones get; see globals.css. */}
-                    <td data-label="Sensor" className="cell-wide">
+                    <td data-label="Sensor" className="cell-wide cell-sensor-name">
                       <span className="ch-pip" style={{ background: channelHue(ch.index) }} />
                       {ch.name}
                     </td>
-                    <td data-label="When">
+                    <td data-label="When" className="cell-when">
                       <span className={kind === 'below' ? 'alarm-cold' : 'alarm-hot'}>
                         {alarmKindLabel(kind)}
                       </span>
                     </td>
-                    <td data-label="On">
-                      <Toggle on={d.enabled} onClick={() => set(ch.index, kind, { enabled: !d.enabled })} />
+                    <td data-label="On" className="cell-on">
+                      <Toggle
+                        on={d.enabled}
+                        onClick={() => set(ch.index, kind, { enabled: !d.enabled })}
+                        title="Alert on"
+                      />
                     </td>
                     <td data-label="Limit °C">
                       <input
