@@ -316,6 +316,14 @@ static void ingest_task(void *arg)
                             break;
                         }
                         batches++;
+                        /* Each batch is a fresh TLS handshake plus a synchronous
+                         * flash header write and NVS commit (ring_log_ack_until).
+                         * Draining a large backlog over a slow/lossy uplink can
+                         * chain eight of these back to back with no yield point,
+                         * which starves the idle task long enough to trip the
+                         * Task Watchdog and reboot the board. Yield between
+                         * batches so the scheduler always gets a slice. */
+                        vTaskDelay(1);
                     }
                     s_last_ok = ok;
                 }
