@@ -20,3 +20,12 @@ export function isMonitorUsbPort(port: Pick<SerialPort, 'getInfo'>): boolean {
     return false;
   }
 }
+
+export async function selectMonitorUsbPort(
+  serial: Pick<Serial, 'getPorts' | 'requestPort'>,
+  auto: boolean,
+): Promise<SerialPort | null> {
+  // A manual Add USB click must always let the user choose, even after a failure.
+  if (!auto) return serial.requestPort();
+  return (await serial.getPorts()).find(isMonitorUsbPort) ?? null;
+}
