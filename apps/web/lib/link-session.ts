@@ -11,12 +11,11 @@ import {
   NUS_TX,
   USB_BAUD,
   USB_BUFFER,
-  USB_ESP_PID,
-  USB_ESP_VID,
 } from './config';
 import { drainRetryMs, flushAckFromIngest } from './drain';
 import { errorMessage, explainUsbOpenError, wifiIsLive } from './format';
 import { autoUsbEnabled, setAutoUsb } from './usb-auto';
+import { isMonitorUsbPort } from './usb-ports';
 import {
   type ClaimResponse,
   type DeviceMsg,
@@ -193,17 +192,8 @@ async function closeSerialPort(port: SerialPort): Promise<void> {
   }
 }
 
-const USB_FILTERS = [{ usbVendorId: USB_ESP_VID, usbProductId: USB_ESP_PID }];
-
 function isEspPort(port: SerialPort): boolean {
-  try {
-    const info = port.getInfo();
-    if (info.usbVendorId !== USB_ESP_VID) return false;
-    if (info.usbProductId != null && info.usbProductId !== USB_ESP_PID) return false;
-    return true;
-  } catch {
-    return false;
-  }
+  return isMonitorUsbPort(port);
 }
 
 async function grantedEspPorts(): Promise<SerialPort[]> {
@@ -330,7 +320,7 @@ async function chooseUsbPort(auto: boolean): Promise<SerialPort | null> {
   const granted = await grantedEspPorts();
   if (granted.length > 0) return granted[0];
   if (auto) return null;
-  return navigator.serial!.requestPort({ filters: USB_FILTERS });
+  return navigator.serial!.requestPort();
 }
 
 async function readUsbLines(
