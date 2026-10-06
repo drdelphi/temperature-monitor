@@ -15,7 +15,7 @@ import {
 import { drainRetryMs, flushAckFromIngest } from './drain';
 import { errorMessage, explainUsbOpenError, wifiIsLive } from './format';
 import { autoUsbEnabled, setAutoUsb } from './usb-auto';
-import { isMonitorUsbPort } from './usb-ports';
+import { isMonitorUsbPort, selectMonitorUsbPort } from './usb-ports';
 import {
   type ClaimResponse,
   type DeviceMsg,
@@ -317,10 +317,7 @@ async function acquireUsbPort(preferred: SerialPort): Promise<SerialPort> {
 }
 
 async function chooseUsbPort(auto: boolean): Promise<SerialPort | null> {
-  const granted = await grantedEspPorts();
-  if (granted.length > 0) return granted[0];
-  if (auto) return null;
-  return navigator.serial!.requestPort();
+  return selectMonitorUsbPort(navigator.serial!, auto);
 }
 
 async function readUsbLines(
@@ -398,6 +395,7 @@ export class LinkSession {
   private drainTimer: ReturnType<typeof setTimeout> | null = null;
   private unloadBound = false;
   private identified = false;
+  private registered = false;
   private onPageHide: (() => void) | null = null;
   private pump: Promise<void> | null = null;
   private connectChain: Promise<void> = Promise.resolve();
@@ -630,6 +628,7 @@ export class LinkSession {
   async disconnect(reason?: string): Promise<void> {
     this.stopDrain();
     this.identified = false;
+    this.registered = false;
     this.helloWaiters = [];
     this.scanWaiters = [];
     const abort = this.abort;
@@ -665,6 +664,7 @@ export class LinkSession {
   private loseLink(reason: string) {
     this.stopDrain();
     this.identified = false;
+    this.registered = false;
     this.helloWaiters = [];
     this.scanWaiters = [];
     const abort = this.abort;
@@ -798,6 +798,7 @@ export class LinkSession {
     this.stopDrain();
     this.identified = false;
     this.wifiYieldSince = null;
+    this.registered = false;
     this.lastStatusPoll = 0;
     this.patch({
       ...IDLE,
@@ -839,7 +840,6 @@ export class LinkSession {
       hello = await this.waitForHello(transport === 'usb' ? 8000 : 4000);
     }
     if (abort.signal.aborted) return;
-    if (this.identified) return;
     if (!hello) {
       const status =
         transport === 'usb'
@@ -880,7 +880,6 @@ export class LinkSession {
       });
       if (!this.identified) {
         this.identified = true;
-        void this.onIdentified(msg);
       } else {
         this.applyWifiState(msg.wifiState, msg.unackedCount);
       }
@@ -949,7 +948,16 @@ export class LinkSession {
       ...wifiNetFromMsg(hello),
     });
 
-    if (!hello.claimed) {
+    let needsClaim = !hello.claimed;
+    if (hello.claimed) {
+      try {
+        await apiGet(`/v1/devices/${encodeURIComponent(deviceId)}`);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) needsClaim = true;
+        else throw err;
+      }
+    }
+    if (needsClaim) {
       this.patch({ status: 'Adding this monitor…' });
       try {
         const claimed = normalizeClaim(
@@ -958,12 +966,12 @@ export class LinkSession {
         await this.sendClaim(claimed, deviceId);
         this.patch({ claimed: true, status: 'Monitor added' });
       } catch (err) {
-        this.patch({ status: `Could not add this monitor. ${errorMessage(err)}` });
-        if (err instanceof ApiError && err.status === 409) {
-          this.patch({ claimed: true, status: 'This monitor is already added.' });
-        }
+        const message = `Could not add this monitor. ${errorMessage(err)}`;
+        this.patch({ status: message, error: message });
+        throw err;
       }
     }
+    this.registered = true;
 
     try {
       await this.send({ type: 'set_time', unixTime: Math.floor(Date.now() / 1000) });
@@ -979,14 +987,12 @@ export class LinkSession {
   }
 
   private async sendClaim(claimed: ClaimResponse, deviceId: string) {
+    if (!claimed.token) throw new Error('The server did not return a device token. Please try again.');
     await this.send({
       type: 'claim',
       token: claimed.token,
       apiBaseUrl: API_BASE,
     });
-    if (!claimed.token) {
-      this.patch({ status: 'Monitor added, but setup is incomplete. Please connect again.' });
-    }
   }
 
   private stopDrain() {
@@ -1033,6 +1039,7 @@ export class LinkSession {
   }
 
   private async startDrain() {
+    if (!this.registered) return;
     if (this.draining) return;
     if (!shouldDrain(this.state.wifiState)) return;
     if (!this.write || !this.state.deviceId) return;
@@ -1061,6 +1068,7 @@ export class LinkSession {
   }
 
   private async onSamples(snapshots: IngestSnapshot[]) {
+    if (!this.registered) return;
     if (!shouldDrain(this.state.wifiState)) return;
     const deviceId = this.state.deviceId;
     if (!deviceId) return;
